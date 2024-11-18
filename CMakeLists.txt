@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.23 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.25 FATAL_ERROR)
 project(pmpp_ex1 CUDA CXX)
 
 if(MSVC)
@@ -13,7 +13,7 @@ else()
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD 20)
 foreach(lang CXX CUDA)
 	set(CMAKE_${lang}_STANDARD_REQUIRED ON)
 	set(CMAKE_${lang}_EXTENSIONS OFF)

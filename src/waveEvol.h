@@ -5,4 +5,4 @@
 #include <vector>
 
 template<typename T>
-void evolve(std::vector<T>& wave, T activation, T deactivation);
+void evolve(std::vector<T>& wave, T activation, T deactivation) requires std::unsigned_integral<T>;
