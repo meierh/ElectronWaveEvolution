@@ -1,78 +1,129 @@
 #include <waveform_evolution.hpp>
 
-template<uint num_threads>
-concept ThreadsOK = num_threads%8==0 && num_threads>0;
+#include <iostream>
 
-template<uint num_threads>
 __global__ void check_collision_kernel
 (
-	std::uint64_t* wave_data,
+	const std::uint64_t* wave_data,
 	std::uint64_t wave_data_len,
 	std::uint64_t activation,
 	std::uint64_t deactivation,
-	std::uint8_t* collision_bits
+	bool* collision,
+	std::uint64_t* non_collision_offset
 )
-requires ThreadsOK<num_threads>
 {
 	// TODO: Compute of collision occures and set bit in collision_bits if it happens
-
-	__shared__ bool collision[num_threads];
-	num_threads[threadIdx.x] = false;
 	std::uint64_t wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
-
-	std::uint64_t wave = 0;
 	if(wave_data_index<wave_data_len)
 	{
-		wave = wave_data[wave_data_index];
-	}
-	collision[threadIdx.x] = (bool)((wave & activation) | ((~wave) & deactivation));
-	__syncthreads();
-
-	if(threadIdx.x%8==0 && wave_data_index<wave_data_len)
-	{
-		std::uint8_t col_bits = 0;
-		for(uint i=; i<8; i++)
-		{
-			std::uint64_t blockGlobalIndex = i+threadIdx.x;
-			std::uint8_t bit = collision[blockGlobalIndex] ? 1 : 0;
-			col_bits |= bit << (7-blockGlobalIndex);
-		}
-		std::uint64_t collision_bits_index = wave_data_index/8;
-		collision_bits[collision_bits_index] = col_bits;
+		std::uint64_t wave = wave_data[wave_data_index];
+		bool col = (bool)((wave & activation) | ((~wave) & deactivation));
+		collision[wave_data_index] = col;
+		non_collision_offset[wave_data_index] = col ? 0 : 1;
 	}
 }
 
-__global__ void compute_offsets_kernel
+template<uint num_threads>
+concept ThreadsOK = num_threads%8==0 && num_threads>0 && num_threads<30000;
+
+template<uint num_threads>
+__global__ void inclusive_scan_kernel
 (
-	std::uint8_t* collisions,
+	std::uint64_t* non_collision_offset,
 	std::uint64_t wave_data_len,
-	std::uint64_t* offsets
+	std::uint64_t* non_collision_offset_endBlock,
+	std::uint16_t blockOffset
+)
+requires ThreadsOK<num_threads>
+{
+	std::uint64_t wave_data_index = blockDim.x*(blockIdx.x+blockOffset) + threadIdx.x;
+	__shared__ std::uint64_t offsets[num_threads];
+	offsets[threadIdx.x] = 0;
+	if(wave_data_index<wave_data_len)
+	{
+		offsets[threadIdx.x] = non_collision_offset[wave_data_index];
+	}
+	if(threadIdx.x==0 && blockIdx.x>blockOffset)
+	{
+		offsets[threadIdx.x] += non_collision_offset_endBlock[blockIdx.x];
+	}
+	__syncthreads();
+
+	for(uint stride = 1; stride<=blockDim.x; stride*=2)
+	{
+		__syncthreads();
+		uint indx = (threadIdx.x+1)*2*stride-1;
+		if(indx<num_threads)
+			offsets[indx] += offsets[indx-stride];
+	}
+	for(int stride = num_threads/4; stride>0; stride/=2)
+	{
+		__syncthreads();
+		uint indx = (threadIdx.x+1)*2*stride-1;
+		if(indx+stride<num_threads)
+			offsets[indx+stride] += offsets[indx];
+	}
+	__syncthreads();
+
+	if(wave_data_index<wave_data_len)
+	{
+		non_collision_offset[wave_data_index] = offsets[threadIdx.x];
+	}
+
+	if(threadIdx.x==blockDim.x-1)
+		non_collision_offset_endBlock[blockIdx.x+blockOffset] = offsets[blockDim.x-1];
+}
+
+void inclusive_scan
+(
+	std::uint64_t* non_collision_offset,
+	std::uint64_t wave_data_len
 )
 {
-	// TODO: Compute offsets from collision_bits for added waves
+	cudaError_t allocError;
+	constexpr uint blockSize = 32;
+	int gridSize = wave_data_len/blockSize;
+
+	pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset_endBlock = pmpp::make_managed_cuda_array<std::uint64_t>(gridSize,cudaMemAttachGlobal,&allocError);
+
+	for(std::uint16_t blockOffset=0; blockOffset<gridSize; blockOffset++, gridSize--)
+	{
+		inclusive_scan_kernel<blockSize><<<dim3(gridSize),dim3(blockSize)>>>
+		(
+			non_collision_offset,
+			wave_data_len,
+			non_collision_offset_endBlock.get(),
+			blockOffset
+		);
+	}
 }
 
 __global__ void evolve_kernel
 (
-	std::uint64_t* wave_data,
+	const std::uint64_t* wave_data,
 	std::uint64_t wave_data_len,
 	std::uint64_t activation,
 	std::uint64_t deactivation,
-	std::uint64_t* offsets,
-	std::uint64_t offsets_len,
+	const bool* collision,
+	const std::uint64_t* non_collision_offset,
  	std::uint64_t* wave_data_out
 )
 {
 	// TODO: Compute evolved data and store in dst_data according to offsets numbers
-	std::uint64_t globalIndex = blockDim.x*blockIdx.x + threadIdx.x;
-	if(globalIndex < offsets_len)
+	std::uint64_t wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
+	if(wave_data_index < wave_data_len)
 	{
-		std::uint64_t wave_data_index = offsets[globalIndex];
 		std::uint64_t wave = wave_data[wave_data_index];
-		std::uint64_t new_wave = wave;
-		new_wave |= activation;
-		new_wave &= ~deactivation;
-		wave_data_out[wave_data_len+globalIndex] = new_wave;
+		bool wave_collision = collision[wave_data_index];
+		std::uint64_t wave_offset = non_collision_offset[wave_data_index];
+
+		if(!wave_collision)
+		{
+			std::uint64_t new_wave = wave;
+			new_wave |= activation;
+			new_wave &= ~deactivation;
+			wave_data_out[wave_data_len+wave_offset] = new_wave;
+		}
 	}
 }
 
@@ -90,63 +141,71 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	 * Compute collision data
 	 */
 	std::size_t collision_size = device_wavefunction.size()/(sizeof(std::uint64_t));
-	cuda_ptr<std::uint8_t> collisions;
-	collisions = make_managed_cuda_array<std::uint8_t>(collision_size,cudaMemAttachGlobal,&allocError);
-
-	blockSz = { 32 };
-	gridSz = { (wave.size()/blockSz.x)+1 };
-	check_collision_kernel<<<gridSz,blockSz>>><blockSz>
+	pmpp::cuda_ptr<bool[]> collisions;
+	collisions = pmpp::make_managed_cuda_array<bool>(collision_size,cudaMemAttachGlobal,&allocError);
+	pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset;
+	non_collision_offset = pmpp::make_managed_cuda_array<std::uint64_t>(1,cudaMemAttachGlobal,&allocError);
+	constexpr uint num_threads = 32;
+	gridSz = { (static_cast<uint>(device_wavefunction.size())/2)+1 };
+	check_collision_kernel<<<gridSz,dim3(num_threads)>>>
 	(
-		device_wavefunction.data(),device_wavefunction.size(),
-		activation,deactivation,
-		collisions.get()
+		device_wavefunction.data(),
+		device_wavefunction.size(),
+		activation,
+		deactivation,
+		collisions.get(),
+		non_collision_offset.get()
 	);
 	cudaDeviceSynchronize();
 
 	/*
 	 * Compute offsets
 	 */
-	cuda_ptr<std::uint64_t> offsets;
-	offsets = make_managed_cuda_array<std::uint64_t>(collision_size,cudaMemAttachGlobal,&allocError);
-	blockSz = { 32 };
-	gridSz = { (wave.size()/blockSz.x)+1 };
-	compute_offsets_kernel<<<gridSz,blockSz>>>
+	inclusive_scan(non_collision_offset.get(),device_wavefunction.size());
+	std::uint64_t maxOffset;
+	cudaMemcpy
 	(
-		collisions.get(),data(),
-		device_wavefunction.size(),
-		offsets.get()
+		&maxOffset,
+		non_collision_offset.get()+device_wavefunction.size()-1,
+		sizeof(std::uint64_t),
+		cudaMemcpyDeviceToDevice
 	);
-	cudaDeviceSynchronize();
-	std::uint64_t maxOffset; // Compute max offset
 
 	/*
 	 * Compute evolution
 	 */
-	cuda_ptr<std::uint64_t> wave_data_out;
-	wave_data_out = make_managed_cuda_array<std::uint64_t>
+	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> waveOut;
+	pmpp::cuda_ptr<std::uint64_t[]>& wave_data_out = waveOut.first;
+	waveOut.second = device_wavefunction.size()+maxOffset;
+	wave_data_out = pmpp::make_managed_cuda_array<std::uint64_t>
 	(
 		device_wavefunction.size()+maxOffset,
 		cudaMemAttachGlobal,
 		&allocError
 	);
 	blockSz = { 32 };
-	gridSz = { (wave.size()/blockSz.x)+1 };
+	gridSz = { 123 };
 	evolve_kernel<<<gridSz,blockSz>>>
 	(
-		device_wavefunction.data(),device_wavefunction.size(),
-		activation,deactivation,
-		collisions.get(),collision_size,
-		wave_data_out.data(),
+		device_wavefunction.data(),
+		device_wavefunction.size(),
+		activation,
+		deactivation,
+		collisions.get(),
+		non_collision_offset.get(),
+		wave_data_out.get()
 	);
-	cudaMemcpy
+	cpyError = cudaMemcpy
 	(
-		wave_data_out.data(),
+		wave_data_out.get(),
 		device_wavefunction.data(),
 		device_wavefunction.size()*sizeof(std::uint64_t),
 		cudaMemcpyDeviceToDevice
 	);
+	cudaDeviceSynchronize();
+	std::cout<<"Error: "<<cudaGetErrorName(cpyError)<<"  --  "<<cudaGetErrorString(cpyError)<<std::endl;
 
-	return {wave_data_out, device_wavefunction.size()+maxOffset};
+	return waveOut;
 }
 
 cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz(
@@ -156,7 +215,7 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz(
 )
 {
 	/* TODO */
-	for(label operatorInd=0; operatorInd<activations.size(); operatorInd++)
+	for(std::uint64_t operatorInd=0; operatorInd<activations.size(); operatorInd++)
 	{
 		// cuda::std::span -> pmpp::cuda_ptr -> cuda::std::span sucks!!!
 	}

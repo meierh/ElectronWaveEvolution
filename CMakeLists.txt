@@ -1,6 +1,7 @@
 # tested with module load cmake/3.26.1 gcc/13.1.0 cuda/12.5
 
 cmake_minimum_required(VERSION 3.26 FATAL_ERROR)
+
 project(pmpp_final CXX CUDA)
 
 # cmake standard build options
