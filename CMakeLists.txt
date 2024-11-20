@@ -1,47 +1,72 @@
-cmake_minimum_required(VERSION 3.25 FATAL_ERROR)
-project(pmpp_ex1 CUDA CXX)
+# tested with module load cmake/3.26.1 gcc/13.1.0 cuda/12.5
 
-if(MSVC)
-	string(REGEX REPLACE "[-/]W[0-9]" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
-	string(APPEND CMAKE_CXX_FLAGS " /W4 /WX /wd4127 /wd4800 /D_CRT_SECURE_NO_WARNINGS /D_SCL_SECURE_NO_WARNINGS")
-	foreach(TYPE EXE STATIC SHARED MODULE)
-		string(APPEND CMAKE_${TYPE}_LINKER_FLAGS " /WX /IGNORE:4199")
-	endforeach()
-else()
-	string(APPEND CMAKE_CXX_FLAGS " -Wall -Wextra -Wpedantic -Werror")
-	string(APPEND CMAKE_CXX_FLAGS " -Wno-attributes") # old GCC doesn't support [nodiscard]
-endif()
+cmake_minimum_required(VERSION 3.26 FATAL_ERROR)
+project(pmpp_final CXX CUDA)
 
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CUDA_STANDARD 20)
+# cmake standard build options
+option(BUILD_TESTING "Control whether the CTest module invokes enable_testing()" OFF)
+option(BUILD_SHARED_LIBS "Tell add_library() to default to SHARED libraries, instead of STATIC libraries, when called with no explicit library type" OFF)
+
 foreach(lang CXX CUDA)
+	set(CMAKE_${lang}_STANDARD 20)
 	set(CMAKE_${lang}_STANDARD_REQUIRED ON)
 	set(CMAKE_${lang}_EXTENSIONS OFF)
 endforeach()
 
-string(APPEND CMAKE_CUDA_FLAGS " -Wno-deprecated-gpu-targets -Wreorder -Werror=all-warnings")
-if(MSVC AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 11.8 AND CMAKE_CUDA_COMPILER_VERSION VERSION_LESS_EQUAL 11.8.89)
-	# workaround for CUDA 11.8 containing /DEFAULTLIB:LIBCMT directives in cudadevrt.lib and cudart_static.lib
-	foreach(type EXE SHARED MODULE)
-		string(APPEND CMAKE_${type}_LINKER_FLAGS " /NODEFAULTLIB:LIBCMT")
-	endforeach()
+if(MSVC)
+	add_link_options(/NODEFAULTLIB:LIBCMT)
 endif()
 
-add_executable(
-	${PROJECT_NAME}
-	src/main.cpp
-	src/pointer.h
-	src/pointer.cpp
-	src/waveEvol.h
-	src/waveEvol.cu
+add_compile_options($<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+
+add_library(
+	pmpp_final
+	waveform_evolution.cu
+	include/waveform_evolution.hpp
+	include/helpers.hpp
 )
 
-find_package(CUDAToolkit)
-target_link_libraries(${PROJECT_NAME} PRIVATE CUDA::cudart)
+target_include_directories(pmpp_final PUBLIC include)
 
-find_package(OpenMP REQUIRED)
+find_package(CUDAToolkit REQUIRED)
+find_package(libcudacxx REQUIRED)
+target_link_libraries(
+	pmpp_final
+	PUBLIC
+	$<IF:$<STREQUAL:$<UPPER_CASE:${CMAKE_CUDA_RUNTIME_LIBRARY}>,"SHARED">,CUDA::cudart,CUDA::cudart_static>
+	libcudacxx::libcudacxx
+)
 
-if(MSVC)
-	# as of VC 19.34, OpenMP is not fully compatible with /permissive- or /std:c++20 (esp. #pragma omp barrier, which is used by thrust)
-	target_compile_options(OpenMP::OpenMP_CXX INTERFACE $<$<COMPILE_LANGUAGE:CXX>:/permissive>)
+if(NOT BUILD_TESTING)
+	return()
 endif()
+
+include(FetchContent)
+FetchContent_Declare(
+	Catch2
+	GIT_SHALLOW ON
+	GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+	GIT_TAG v3.7.1
+	OVERRIDE_FIND_PACKAGE
+)
+FetchContent_MakeAvailable(Catch2)
+find_package(Catch2 3 REQUIRED)
+include(CTest)
+include(Catch)
+
+add_executable(
+	test_pmpp_final
+	test_pmpp_final.cpp
+)
+
+target_link_libraries(
+	test_pmpp_final
+	PRIVATE
+	pmpp_final
+	Catch2::Catch2WithMain
+)
+
+catch_discover_tests(
+	test_pmpp_final
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
