@@ -59,6 +59,70 @@ std::vector<std::uint64_t> evolve_ansatz_host(
 	return result;
 }
 
+#include <iostream>
+TEST_CASE("check_collision_kernel test", "[self-test]")
+{
+	std::vector<std::uint64_t> host_wavefunction =
+	{
+		2,5,213,12,1
+	};
+	uint waveSize = host_wavefunction.size();
+	std::uint64_t activation = 3;
+	std::uint64_t deactivation = 7;
+
+	auto device_wavefunction_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(waveSize);
+	auto device_wavefunction = cuda::std::span(device_wavefunction_ptr.get(), waveSize);
+	std::copy_n(data(host_wavefunction), waveSize, device_wavefunction.data());
+
+	pmpp::cuda_ptr<bool[]> collisions;
+	pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset;
+
+	collisionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset);
+
+	std::vector<char> collisions_cpu(waveSize);
+	std::vector<std::uint64_t> non_collision_offset_cpu(waveSize);
+	cudaMemcpy(data(collisions_cpu),collisions.get(),waveSize*sizeof(bool),cudaMemcpyDeviceToHost);
+	cudaMemcpy(data(non_collision_offset_cpu),non_collision_offset.get(),waveSize*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
+
+	for(uint i=0; i<waveSize; i++)
+	{
+		std::cout<<host_wavefunction[i]<<" -- ("<<activation<<","<<deactivation<<")  = collision:"<<(bool)collisions_cpu[i]<<" non_collision_offset:"<<non_collision_offset_cpu[i]<<std::endl;
+	}
+}
+
+#include <numeric>
+TEST_CASE("evolve_kernel test", "[self-test]")
+{
+	std::vector<std::uint64_t> host_wavefunction =
+	{
+		2,5,213,12,1
+	};
+	uint waveSize = host_wavefunction.size();
+	std::uint64_t activation = 3;
+	std::uint64_t deactivation = 7;
+
+	auto device_wavefunction_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(waveSize);
+	auto device_wavefunction = cuda::std::span(device_wavefunction_ptr.get(), waveSize);
+	std::copy_n(data(host_wavefunction), waveSize, device_wavefunction.data());
+
+	pmpp::cuda_ptr<bool[]> collisions;
+	pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset;
+	collisionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset);
+	std::vector<std::uint64_t> offsets(waveSize);
+	cudaMemcpy(data(offsets),non_collision_offset.get(),waveSize*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
+	std::uint64_t maxOffset = std::accumulate(offsets.begin(), offsets.end(),decltype(offsets)::value_type(0));
+
+	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> waveOut;
+	evolutionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset,maxOffset,waveOut);
+
+	/*
+	for(uint i=0; i<maxOffset+waveSize; i++)
+	{
+		std::cout<<host_wavefunction[i]<<" -- ("<<activation<<","<<deactivation<<")  = collision:"<<(bool)collisions_cpu[i]<<" non_collision_offset:"<<non_collision_offset_cpu[i]<<std::endl;
+	}
+	*/
+}
+
 TEST_CASE("Self test input data", "[self-test]")
 {
 	test_data_loader loader("example_evolution.bin");

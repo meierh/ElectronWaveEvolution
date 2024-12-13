@@ -132,31 +132,12 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	std::uint64_t activation, std::uint64_t deactivation
 )
 {
-	/* TODO */
-	cudaError_t allocError,cpyError;
-	dim3 blockSz;
-	dim3 gridSz;
-
 	/*
 	 * Compute collision data
 	 */
-	std::size_t collision_size = device_wavefunction.size()/(sizeof(std::uint64_t));
 	pmpp::cuda_ptr<bool[]> collisions;
-	collisions = pmpp::make_managed_cuda_array<bool>(collision_size,cudaMemAttachGlobal,&allocError);
 	pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset;
-	non_collision_offset = pmpp::make_managed_cuda_array<std::uint64_t>(1,cudaMemAttachGlobal,&allocError);
-	constexpr uint num_threads = 32;
-	gridSz = { (static_cast<uint>(device_wavefunction.size())/2)+1 };
-	check_collision_kernel<<<gridSz,dim3(num_threads)>>>
-	(
-		device_wavefunction.data(),
-		device_wavefunction.size(),
-		activation,
-		deactivation,
-		collisions.get(),
-		non_collision_offset.get()
-	);
-	cudaDeviceSynchronize();
+	collisionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset);
 
 	/*
 	 * Compute offsets
@@ -175,6 +156,76 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	 * Compute evolution
 	 */
 	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> waveOut;
+	evolutionEvaluation
+	(
+		device_wavefunction,
+		activation,
+		deactivation,
+		collisions,
+		non_collision_offset,
+		maxOffset,
+		waveOut
+	);
+
+	return waveOut;
+}
+
+cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz(
+	cuda::std::span<std::uint64_t const> device_wavefunction,
+	cuda::std::span<std::uint64_t const> activations,
+	cuda::std::span<std::uint64_t const> deactivations
+)
+{
+	/* TODO */
+	for(std::uint64_t operatorInd=0; operatorInd<activations.size(); operatorInd++)
+	{
+		// cuda::std::span -> pmpp::cuda_ptr -> cuda::std::span sucks!!!
+	}
+	return {nullptr, 0};
+}
+
+void collisionEvaluation
+(
+	cuda::std::span<std::uint64_t const> const & device_wavefunction,
+	std::uint64_t activation,
+	std::uint64_t deactivation,
+	pmpp::cuda_ptr<bool[]>& collisions,
+	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset
+)
+{
+	cudaError_t allocError;
+	dim3 gridSz;
+
+	std::size_t collision_size = device_wavefunction.size();
+	collisions = pmpp::make_managed_cuda_array<bool>(collision_size,cudaMemAttachGlobal,&allocError);
+	non_collision_offset = pmpp::make_managed_cuda_array<std::uint64_t>(1,cudaMemAttachGlobal,&allocError);
+	constexpr uint num_threads = 32;
+	gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
+	check_collision_kernel<<<gridSz,dim3(num_threads)>>>
+	(
+		device_wavefunction.data(),
+		device_wavefunction.size(),
+		activation,
+		deactivation,
+		collisions.get(),
+		non_collision_offset.get()
+	);
+	cudaDeviceSynchronize();
+}
+
+void evolutionEvaluation
+(
+	const cuda::std::span<std::uint64_t const> & device_wavefunction,
+	std::uint64_t activation,
+	std::uint64_t deactivation,
+	const pmpp::cuda_ptr<bool[]>& collisions,
+	const pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
+	std::uint64_t maxOffset,
+	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t>& waveOut
+)
+{
+	cudaError_t allocError,cpyError;
+	dim3 gridSz,blockSz;
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_data_out = waveOut.first;
 	waveOut.second = device_wavefunction.size()+maxOffset;
 	wave_data_out = pmpp::make_managed_cuda_array<std::uint64_t>
@@ -204,20 +255,4 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	);
 	cudaDeviceSynchronize();
 	std::cout<<"Error: "<<cudaGetErrorName(cpyError)<<"  --  "<<cudaGetErrorString(cpyError)<<std::endl;
-
-	return waveOut;
-}
-
-cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz(
-	cuda::std::span<std::uint64_t const> device_wavefunction,
-	cuda::std::span<std::uint64_t const> activations,
-	cuda::std::span<std::uint64_t const> deactivations
-)
-{
-	/* TODO */
-	for(std::uint64_t operatorInd=0; operatorInd<activations.size(); operatorInd++)
-	{
-		// cuda::std::span -> pmpp::cuda_ptr -> cuda::std::span sucks!!!
-	}
-	return {nullptr, 0};
 }
