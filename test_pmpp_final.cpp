@@ -67,8 +67,8 @@ TEST_CASE("check_collision_kernel test", "[self-test]")
 		2,5,213,12,1
 	};
 	uint waveSize = host_wavefunction.size();
-	std::uint64_t activation = 3;
-	std::uint64_t deactivation = 7;
+	std::uint64_t activation = 0b0010;
+	std::uint64_t deactivation = 0b0001;
 
 	auto device_wavefunction_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(waveSize);
 	auto device_wavefunction = cuda::std::span(device_wavefunction_ptr.get(), waveSize);
