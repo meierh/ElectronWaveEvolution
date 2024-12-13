@@ -4,6 +4,54 @@
 #include <cuda/std/utility>
 #include <cuda/std/span>
 
+/// @brief
+/// @param device_wavefunction
+/// @param activation
+/// @param deactivation
+/// @param collisions
+/// @param non_collision_offset
+/// @return
+void collisionEvaluation
+(
+	cuda::std::span<std::uint64_t const> const & device_wavefunction,
+	std::uint64_t activation,
+	std::uint64_t deactivation,
+	pmpp::cuda_ptr<bool[]>& collisions,
+	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset
+);
+
+/// @brief
+/// @param device_wavefunction
+/// @param non_collision_offset
+/// @param maxOffset
+/// @return
+void computeOffsets
+(
+	const cuda::std::span<std::uint64_t const>& device_wavefunction,
+	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
+	std::uint64_t& maxOffset
+);
+
+/// @brief
+/// @param device_wavefunction
+/// @param activation
+/// @param deactivation
+/// @param collisions
+/// @param non_collision_offset
+/// @param maxOffset
+/// @param waveOut
+/// @return
+void evolutionEvaluation
+(
+	const cuda::std::span<std::uint64_t const> & device_wavefunction,
+	std::uint64_t activation,
+	std::uint64_t deactivation,
+	const pmpp::cuda_ptr<bool[]>& collisions,
+	const pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
+	std::uint64_t maxOffset,
+	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t>& waveOut
+);
+
 /// @brief Evolve a wavefunction using a single operator
 /// @param device_wavefunction Current wavefunction (stored in device or managed memory)
 /// @param activation Activation part of the operator
@@ -23,29 +71,4 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz(
 	cuda::std::span<std::uint64_t const> device_wavefunction,
 	cuda::std::span<std::uint64_t const> activations,
 	cuda::std::span<std::uint64_t const> deactivations
-);
-
-/// @brief
-/// @param device_wavefunction
-/// @param activation
-/// @param deactivation
-/// @return
-void collisionEvaluation
-(
-	cuda::std::span<std::uint64_t const> const & device_wavefunction,
-	std::uint64_t activation,
-	std::uint64_t deactivation,
-	pmpp::cuda_ptr<bool[]>& collisions,
-	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset
-);
-
-void evolutionEvaluation
-(
-	const cuda::std::span<std::uint64_t const> & device_wavefunction,
-	std::uint64_t activation,
-	std::uint64_t deactivation,
-	const pmpp::cuda_ptr<bool[]>& collisions,
-	const pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
-	std::uint64_t maxOffset,
-	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t>& waveOut
 );

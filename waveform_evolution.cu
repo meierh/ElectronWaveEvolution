@@ -82,7 +82,7 @@ void inclusive_scan
 {
 	cudaError_t allocError;
 	constexpr uint blockSize = 32;
-	int gridSize = wave_data_len/blockSize;
+	int gridSize = (wave_data_len/blockSize) + 1;
 
 	pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset_endBlock = pmpp::make_managed_cuda_array<std::uint64_t>(gridSize,cudaMemAttachGlobal,&allocError);
 
@@ -122,9 +122,98 @@ __global__ void evolve_kernel
 			std::uint64_t new_wave = wave;
 			new_wave |= activation;
 			new_wave &= ~deactivation;
-			wave_data_out[wave_data_len+wave_offset] = new_wave;
+			wave_data_out[wave_data_len-1+wave_offset] = new_wave;
 		}
 	}
+}
+
+void collisionEvaluation
+(
+	cuda::std::span<std::uint64_t const> const & device_wavefunction,
+	std::uint64_t activation,
+	std::uint64_t deactivation,
+	pmpp::cuda_ptr<bool[]>& collisions,
+	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset
+)
+{
+	cudaError_t allocError;
+	dim3 gridSz;
+
+	std::size_t collision_size = device_wavefunction.size();
+	collisions = pmpp::make_managed_cuda_array<bool>(collision_size,cudaMemAttachGlobal,&allocError);
+	non_collision_offset = pmpp::make_managed_cuda_array<std::uint64_t>(collision_size,cudaMemAttachGlobal,&allocError);
+	constexpr uint num_threads = 32;
+	gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
+	check_collision_kernel<<<gridSz,dim3(num_threads)>>>
+	(
+		device_wavefunction.data(),
+		device_wavefunction.size(),
+		activation,
+		deactivation,
+		collisions.get(),
+		non_collision_offset.get()
+	);
+	cudaDeviceSynchronize();
+}
+
+void computeOffsets
+(
+	const cuda::std::span<std::uint64_t const>& device_wavefunction,
+	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
+	std::uint64_t& maxOffset
+)
+{
+	inclusive_scan(non_collision_offset.get(),device_wavefunction.size());
+	cudaMemcpy
+	(
+		&maxOffset,
+		non_collision_offset.get()+device_wavefunction.size()-1,
+		sizeof(std::uint64_t),
+		cudaMemcpyDeviceToHost
+	);
+}
+
+void evolutionEvaluation
+(
+	const cuda::std::span<std::uint64_t const> & device_wavefunction,
+	std::uint64_t activation,
+	std::uint64_t deactivation,
+	const pmpp::cuda_ptr<bool[]>& collisions,
+	const pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
+	std::uint64_t maxOffset,
+	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t>& waveOut
+)
+{
+	cudaError_t allocError;
+	dim3 gridSz,blockSz;
+	pmpp::cuda_ptr<std::uint64_t[]>& wave_data_out = waveOut.first;
+	waveOut.second = device_wavefunction.size()+maxOffset;
+	wave_data_out = pmpp::make_managed_cuda_array<std::uint64_t>
+	(
+		device_wavefunction.size()+maxOffset,
+		cudaMemAttachGlobal,
+		&allocError
+	);
+	blockSz = { 32 };
+	gridSz = { 123 };
+	evolve_kernel<<<gridSz,blockSz>>>
+	(
+		device_wavefunction.data(),
+		device_wavefunction.size(),
+		activation,
+		deactivation,
+		collisions.get(),
+		non_collision_offset.get(),
+		wave_data_out.get()
+	);
+	cudaMemcpy
+	(
+		wave_data_out.get(),
+		device_wavefunction.data(),
+		device_wavefunction.size()*sizeof(std::uint64_t),
+		cudaMemcpyDeviceToDevice
+	);
+	cudaDeviceSynchronize();
 }
 
 cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
@@ -142,15 +231,8 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	/*
 	 * Compute offsets
 	 */
-	inclusive_scan(non_collision_offset.get(),device_wavefunction.size());
 	std::uint64_t maxOffset;
-	cudaMemcpy
-	(
-		&maxOffset,
-		non_collision_offset.get()+device_wavefunction.size()-1,
-		sizeof(std::uint64_t),
-		cudaMemcpyDeviceToDevice
-	);
+	computeOffsets(device_wavefunction,non_collision_offset,maxOffset);
 
 	/*
 	 * Compute evolution
@@ -177,82 +259,11 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz(
 )
 {
 	/* TODO */
+	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> result;
 	for(std::uint64_t operatorInd=0; operatorInd<activations.size(); operatorInd++)
 	{
-		// cuda::std::span -> pmpp::cuda_ptr -> cuda::std::span sucks!!!
+		result = evolve_operator(device_wavefunction,activations[operatorInd],deactivations[operatorInd]);
+		device_wavefunction = cuda::std::span<std::uint64_t const>(result.first.get(),result.second);
 	}
-	return {nullptr, 0};
-}
-
-void collisionEvaluation
-(
-	cuda::std::span<std::uint64_t const> const & device_wavefunction,
-	std::uint64_t activation,
-	std::uint64_t deactivation,
-	pmpp::cuda_ptr<bool[]>& collisions,
-	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset
-)
-{
-	cudaError_t allocError;
-	dim3 gridSz;
-
-	std::size_t collision_size = device_wavefunction.size();
-	collisions = pmpp::make_managed_cuda_array<bool>(collision_size,cudaMemAttachGlobal,&allocError);
-	non_collision_offset = pmpp::make_managed_cuda_array<std::uint64_t>(1,cudaMemAttachGlobal,&allocError);
-	constexpr uint num_threads = 32;
-	gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
-	check_collision_kernel<<<gridSz,dim3(num_threads)>>>
-	(
-		device_wavefunction.data(),
-		device_wavefunction.size(),
-		activation,
-		deactivation,
-		collisions.get(),
-		non_collision_offset.get()
-	);
-	cudaDeviceSynchronize();
-}
-
-void evolutionEvaluation
-(
-	const cuda::std::span<std::uint64_t const> & device_wavefunction,
-	std::uint64_t activation,
-	std::uint64_t deactivation,
-	const pmpp::cuda_ptr<bool[]>& collisions,
-	const pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
-	std::uint64_t maxOffset,
-	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t>& waveOut
-)
-{
-	cudaError_t allocError,cpyError;
-	dim3 gridSz,blockSz;
-	pmpp::cuda_ptr<std::uint64_t[]>& wave_data_out = waveOut.first;
-	waveOut.second = device_wavefunction.size()+maxOffset;
-	wave_data_out = pmpp::make_managed_cuda_array<std::uint64_t>
-	(
-		device_wavefunction.size()+maxOffset,
-		cudaMemAttachGlobal,
-		&allocError
-	);
-	blockSz = { 32 };
-	gridSz = { 123 };
-	evolve_kernel<<<gridSz,blockSz>>>
-	(
-		device_wavefunction.data(),
-		device_wavefunction.size(),
-		activation,
-		deactivation,
-		collisions.get(),
-		non_collision_offset.get(),
-		wave_data_out.get()
-	);
-	cpyError = cudaMemcpy
-	(
-		wave_data_out.get(),
-		device_wavefunction.data(),
-		device_wavefunction.size()*sizeof(std::uint64_t),
-		cudaMemcpyDeviceToDevice
-	);
-	cudaDeviceSynchronize();
-	std::cout<<"Error: "<<cudaGetErrorName(cpyError)<<"  --  "<<cudaGetErrorString(cpyError)<<std::endl;
+	return result;
 }
