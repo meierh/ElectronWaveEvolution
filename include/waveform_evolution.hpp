@@ -49,7 +49,21 @@ void evolutionEvaluation
 	const pmpp::cuda_ptr<bool[]>& collisions,
 	const pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
 	std::uint64_t maxOffset,
-	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t>& waveOut
+	pmpp::cuda_ptr<std::uint64_t[]>& wave_added
+);
+
+/// @brief
+/// @param device_wavefunction
+/// @param maxOffset
+/// @param wave_added
+/// @param reducedMaxOffset
+/// @return
+void removeDuplicates
+(
+	const cuda::std::span<std::uint64_t const> & device_wavefunction,
+	std::uint64_t maxOffset,
+	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
+	std::uint64_t& reducedMaxOffset
 );
 
 /// @brief Evolve a wavefunction using a single operator
