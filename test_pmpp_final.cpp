@@ -222,6 +222,13 @@ TEST_CASE("evolve_kernel test", "[self-test]")
 
 	for(uint i=0; i<multi_host_wavefunction.size(); i++)
 	{
+		// timing measurement events: https://developer.nvidia.com/blog/how-implement-performance-metrics-cuda-cc/
+		cudaEvent_t start, stop;
+		cudaEventCreate(&start);
+		cudaEventCreate(&stop);
+		// getting and returning the data is also measured since it needed for any application to work
+		cudaEventRecord(start);
+
 		const std::vector<std::uint64_t>& host_wavefunction = multi_host_wavefunction[i];
 		uint waveSize = host_wavefunction.size();
 		std::uint64_t activation = multi_activation[i];
@@ -245,12 +252,19 @@ TEST_CASE("evolve_kernel test", "[self-test]")
 		std::vector<std::uint64_t> wave_added_cpu(maxOffset);
 		cudaMemcpy(data(wave_added_cpu),wave_added.get(),maxOffset*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
 
+		cudaEventRecord(stop);
+		cudaEventSynchronize(stop);
+		float milliseconds = 0;
+		cudaEventElapsedTime(&milliseconds, start, stop);
+
 		/*
 		std::cout<<"wave_added_cpu:";
 		for(uint w=0; w<wave_added_cpu.size(); w++)
 			std::cout<<"  "<<std::hex<<wave_added_cpu[w];
 		std::cout<<std::endl;
 		*/
+
+		std::printf("Time testcase %d: %fms\n", i, milliseconds);
 
 		REQUIRE(wave_added_cpu.size() == multi_target_wave_added[i].size());
 		for(uint w=0; w<wave_added_cpu.size(); w++)
