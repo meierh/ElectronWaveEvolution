@@ -59,6 +59,7 @@ std::vector<std::uint64_t> evolve_ansatz_host(
 	return result;
 }
 
+
 #include <iostream>
 TEST_CASE("check_collision_kernel test", "[self-test]")
 {
@@ -303,7 +304,7 @@ TEST_CASE("removeDuplicates_kernel test", "[self-test]")
 		evolutionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset,maxOffset,wave_added);
 
 		std::uint64_t reducedMaxOffset;
-		removeDuplicates(device_wavefunction,maxOffset,wave_added,reducedMaxOffset);
+		treatDuplicates(device_wavefunction,maxOffset,wave_added,reducedMaxOffset);
 
 		std::vector<std::uint64_t> wave_added_cpu(reducedMaxOffset);
 		cudaMemcpy(data(wave_added_cpu),wave_added.get(),reducedMaxOffset*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
@@ -423,4 +424,130 @@ TEST_CASE("Test evolve ansatz", "[simple]")
 	auto wfn_out_dut_set = std::unordered_set(begin(wfn_out_dut), end(wfn_out_dut));
 	REQUIRE(wfn_out_dut.size() == wfn_out_dut_set.size());
 	REQUIRE(wfn_out_set == wfn_out_dut_set);
+}
+
+#include <map>
+#include <fstream>
+TEST_CASE("example_evolution timing", "[simple]")
+{
+	using std::begin;
+	using std::end;
+
+	std::map<std::uint64_t,std::vector<std::uint64_t>> inSize_time;
+	std::map<std::uint64_t,std::vector<std::uint64_t>> outSize_time;
+	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
+
+	test_data_loader loader("example_evolution.bin");
+	loader.for_each_step([&] (
+		std::span<std::uint64_t const> wfn_in,
+		std::span<std::uint64_t const> wfn_out,
+		std::uint64_t activation,
+		std::uint64_t deactivation
+	) {
+
+		auto device_wavefunction_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(size(wfn_in));
+		auto device_wavefunction = cuda::std::span(device_wavefunction_ptr.get(), size(wfn_in));
+		std::copy_n(data(wfn_in), size(wfn_in), device_wavefunction.data());
+
+		auto t_start = best_clock::now();
+		auto [result_wavefunction, result_size] = evolve_operator(device_wavefunction, activation, deactivation);
+		auto t_end = best_clock::now();
+		std::uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
+		std::cout<<"inSize:"<<wfn_in.size()<<" outSize:"<<wfn_out.size()<<" ="<<seconds_elapsed<<std::endl;
+
+		std::vector<std::uint64_t> result(result_size);
+		if(result_size)
+			cudaMemcpy(data(result), result_wavefunction.get(), sizeof(std::uint64_t) * result_size, cudaMemcpyDefault);
+
+		inSize_time[wfn_in.size()].push_back(seconds_elapsed);
+		outSize_time[wfn_out.size()].push_back(seconds_elapsed);
+	});
+
+	std::ofstream inSizeTimes("example_evolution_inSizeTimes");
+	for(auto iterIn=inSize_time.begin(); iterIn!=inSize_time.end(); iterIn++)
+	{
+		std::uint64_t key = iterIn->first;
+		std::vector<std::uint64_t> values = iterIn->second;
+		std::uint64_t avg = std::accumulate(values.begin(),values.end(),0);
+		avg /= values.size();
+		inSizeTimes<<key<<" = "<<avg<<std::endl;
+	}
+
+	std::ofstream outSizeTimes("example_evolution_outSizeTimes");
+	for(auto iterIn=outSize_time.begin(); iterIn!=outSize_time.end(); iterIn++)
+	{
+		std::uint64_t key = iterIn->first;
+		std::vector<std::uint64_t> values = iterIn->second;
+		std::uint64_t avg = std::accumulate(values.begin(),values.end(),0);
+		avg /= values.size();
+		outSizeTimes<<key<<" = "<<avg<<std::endl;
+	}
+}
+
+#include <algorithm>
+#include <chrono>
+#include <random>
+TEST_CASE("artificial data timing", "[simple]")
+{
+	using std::begin;
+	using std::end;
+
+	std::map<std::uint64_t,std::vector<std::uint64_t>> inSize_time;
+	std::map<std::uint64_t,std::vector<std::uint64_t>> outSize_time;
+	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
+
+	std::uint64_t initalWaveSize = 100;
+	std::uint64_t endWaveSize = 100000000;
+	std::uint64_t perSizeIteration = 1;
+
+	std::array<std::uint64_t,63> bitNumbers;
+	for(uint i=0; i<63; i++)
+		bitNumbers[i] = i;
+
+	std::ofstream inSizeTimes("artificialData_inSizeTimes");
+
+	for(std::uint64_t waveSize = initalWaveSize; waveSize<endWaveSize; waveSize*=2)
+	{
+		std::vector<std::uint64_t> seconds;
+		for(uint iteration=0; iteration<perSizeIteration; iteration++)
+		{
+			unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+			std::shuffle(bitNumbers.begin(),bitNumbers.end(),std::default_random_engine(seed));
+			std::uint64_t activation = 0;
+			std::uint64_t one = 1;
+			activation = activation | one<<bitNumbers[0];
+			activation = activation | one<<bitNumbers[1];
+			std::uint64_t deactivation = 0;
+			deactivation = deactivation | one<<bitNumbers[2];
+			deactivation = deactivation | one<<bitNumbers[3];
+
+			std::random_device rnd_device;
+			std::mt19937 engine {rnd_device()};
+			std::uniform_int_distribution<std::uint64_t> dist {0, std::numeric_limits<std::uint64_t>::max()};
+			auto gen = [&](){return dist(engine);};
+			std::vector<std::uint64_t> wfn(waveSize);
+			std::generate(wfn.begin(),wfn.end(),gen);
+			std::span<std::uint64_t> wfn_gen(wfn.begin(),waveSize);
+			std::cout<<"waveSize:"<<std::dec<<waveSize<<" wfn_gen:"<<std::dec<<wfn_gen.size()<<" activation:"<<std::hex<<activation<<" deactivation:"<<std::hex<<deactivation<<std::endl;
+
+			auto device_wavefunction_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(size(wfn_gen));
+			auto device_wavefunction = cuda::std::span(device_wavefunction_ptr.get(), size(wfn_gen));
+			std::copy_n(data(wfn_gen), size(wfn_gen), device_wavefunction.data());
+
+			auto t_start = best_clock::now();
+			std::uint64_t result_size;
+			auto result = evolve_operator(device_wavefunction, activation, deactivation);
+			result_size = result.second;
+			auto t_end = best_clock::now();
+
+			std::uint64_t nanoseconds_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
+			std::uint64_t milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count();
+			std::cout<<waveSize<<" -> "<<result_size<<"  time:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl<<std::endl;
+			seconds.push_back(nanoseconds_elapsed);
+		}
+		std::uint64_t avg = std::accumulate(seconds.begin(),seconds.end(),0);
+		avg /= seconds.size();
+
+		inSizeTimes<<waveSize<<" = "<<avg<<std::endl;
+	}
 }
