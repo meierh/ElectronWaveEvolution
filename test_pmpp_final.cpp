@@ -66,19 +66,24 @@ TEST_CASE("check_collision_kernel test", "[self-test]")
 	std::vector<std::vector<std::uint64_t>> multi_host_wavefunction =
 	{
 		{0xC,0x5,0x6,0xA,0x3},
-		{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216,0x6c,0xcc,0x24c,0x14a,0x66,0xc6,0x246,0x12c,0x18c,0x30c,0x126,0x186,0x306,0x39,0xf0,0x270,0x1b0,0x330}
+		{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216,0x6c,0xcc,0x24c,0x14a,0x66,0xc6,0x246,0x12c,0x18c,0x30c,0x126,0x186,0x306,0x39,0xf0,0x270,0x1b0,0x330},
+		{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216}
 	};
-	std::vector<std::uint64_t> multi_activation = {0x2,0x60};
-	std::vector<std::uint64_t> multi_deactivation = {0x4,0x6};
+	std::vector<std::uint64_t> multi_activation = {0x2,0x60,0x60};
+	std::vector<std::uint64_t> multi_deactivation = {0x4,0x6,0x3};
 
 	//Expected output
 	std::vector<std::vector<std::uint8_t>> multi_target_collisions =
 	{
-		{0,0,1,1,1}
+		{0,0,1,1,1},
+		{0,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1},
+		{0,1,1,1,1,1,1,1,1}
 	};
 	std::vector<std::vector<std::uint64_t>> multi_target_non_collision_offset =
 	{
-		{1,1,0,0,0}
+		{1,1,0,0,0},
+		{1,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0},
+		{1,0,0,0,0,0,0,0,0}
 	};
 
 	for(uint i=0; i<multi_host_wavefunction.size(); i++)
@@ -102,6 +107,7 @@ TEST_CASE("check_collision_kernel test", "[self-test]")
 		cudaMemcpy(data(collisions_cpu),collisions.get(),waveSize*sizeof(bool),cudaMemcpyDeviceToHost);
 		cudaMemcpy(data(non_collision_offset_cpu),non_collision_offset.get(),waveSize*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
 
+		/*
 		std::cout<<"collisions_cpu ("<<waveSize<<"):";
 		for(uint w=0; w<waveSize; w++)
 			std::cout<<"  "<<(uint)collisions_cpu[w];
@@ -111,6 +117,8 @@ TEST_CASE("check_collision_kernel test", "[self-test]")
 		for(uint w=0; w<waveSize; w++)
 			std::cout<<"  "<<non_collision_offset_cpu[w];
 		std::cout<<std::endl;
+		*/
+
 
 		REQUIRE(waveSize == multi_target_collisions[i].size());
 		REQUIRE(waveSize == multi_target_non_collision_offset[i].size());
@@ -120,22 +128,28 @@ TEST_CASE("check_collision_kernel test", "[self-test]")
 			REQUIRE(non_collision_offset_cpu[w] == multi_target_non_collision_offset[i][w]);
 		}
 	}
+	std::cout<<"------------------------------------------------------"<<std::endl;;
 }
+
 
 TEST_CASE("computeOffsets test", "[self-test]")
 {
 	//Input
 	std::vector<std::vector<std::uint64_t>> multi_host_wavefunction =
 	{
-		{0xC,0x5,0x6,0xA,0x3}
+		{0xC,0x5,0x6,0xA,0x3},
+		{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216,0x6c,0xcc,0x24c,0x14a,0x66,0xc6,0x246,0x12c,0x18c,0x30c,0x126,0x186,0x306,0x39,0xf0,0x270,0x1b0,0x330},
+		{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216}
 	};
-	std::vector<std::uint64_t> multi_activation = {0x2};
-	std::vector<std::uint64_t> multi_deactivation = {0x4};
+	std::vector<std::uint64_t> multi_activation = {0x2,0x60,0x60};
+	std::vector<std::uint64_t> multi_deactivation = {0x4,0x6,0x3};
 
 	//Expected output
 	std::vector<std::vector<std::uint64_t>> multi_target_non_collision_offset =
 	{
-		{1,2,2,2,2}
+		{1,2,2,2,2},
+		{1,1,1,1,1,1,1,2,3,3,3,3,3,3,3,3,3,3,3,3,4,5,5,5,5,5,5},
+		{1,1,1,1,1,1,1,1,1}
 	};
 	std::vector<std::uint64_t> multi_maxOffset = {2};
 
@@ -183,15 +197,19 @@ TEST_CASE("evolve_kernel test", "[self-test]")
 	//Input
 	std::vector<std::vector<std::uint64_t>> multi_host_wavefunction =
 	{
-		{0xC,0x5,0x6,0xA,0x3}//,{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216,0x6c,0xcc,0x24c,0x14a,0x66,0xc6,0x246,0x12c,0x18c,0x30c,0x126,0x186,0x306,0x39,0xf0,0x270,0x1b0,0x330}
+		{0xC,0x5,0x6,0xA,0x3},
+		{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216,0x6c,0xcc,0x24c,0x14a,0x66,0xc6,0x246,0x12c,0x18c,0x30c,0x126,0x186,0x306,0x39,0xf0,0x270,0x1b0,0x330},
+		{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216}
 	};
-	std::vector<std::uint64_t> multi_activation = {0x2};
-	std::vector<std::uint64_t> multi_deactivation = {0x4};
+	std::vector<std::uint64_t> multi_activation = {0x2,0x60,0x60};
+	std::vector<std::uint64_t> multi_deactivation = {0x4,0x6,0x3};
 
 	//Expected output
 	std::vector<std::vector<std::uint64_t>> multi_target_wave_added =
 	{
-		{0xA,0x3}
+		{0xa,0x3},
+		{0x69,0xf0,0x270,0x1e0,0x360},
+		{0x6c}
 	};
 
 	for(uint i=0; i<multi_host_wavefunction.size(); i++)
@@ -220,11 +238,10 @@ TEST_CASE("evolve_kernel test", "[self-test]")
 		cudaMemcpy(data(wave_added_cpu),wave_added.get(),maxOffset*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
 
 		/*
-		std::cout<<"waveOut_cpu:";
-		for(uint w=0; w<waveOut_cpu.size(); w++)
-			std::cout<<"  "<<std::hex<<waveOut_cpu[w];
+		std::cout<<"wave_added_cpu:";
+		for(uint w=0; w<wave_added_cpu.size(); w++)
+			std::cout<<"  "<<std::hex<<wave_added_cpu[w];
 		std::cout<<std::endl;
-		std::cout<<"waveOut.second:"<<waveOut.second<<std::endl;
 		*/
 
 		REQUIRE(wave_added_cpu.size() == multi_target_wave_added[i].size());
@@ -235,20 +252,25 @@ TEST_CASE("evolve_kernel test", "[self-test]")
 	}
 }
 
+
 TEST_CASE("removeDuplicates_kernel test", "[self-test]")
 {
 	//Input
 	std::vector<std::vector<std::uint64_t>> multi_host_wavefunction =
 	{
-		{0xC,0x5,0x6,0xA,0x3}//,{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216,0x6c,0xcc,0x24c,0x14a,0x66,0xc6,0x246,0x12c,0x18c,0x30c,0x126,0x186,0x306,0x39,0xf0,0x270,0x1b0,0x330}
+		{0xC,0x5,0x6,0xA,0x3},
+		{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216,0x6c,0xcc,0x24c,0x14a,0x66,0xc6,0x246,0x12c,0x18c,0x30c,0x126,0x186,0x306,0x39,0xf0,0x270,0x1b0,0x330},
+		{0xf,0x3c,0x9c,0x21c,0x5a,0x11a,0x36,0x96,0x216}
 	};
-	std::vector<std::uint64_t> multi_activation = {0x2};
-	std::vector<std::uint64_t> multi_deactivation = {0x4};
+	std::vector<std::uint64_t> multi_activation = {0x2,0x60,0x60};
+	std::vector<std::uint64_t> multi_deactivation = {0x4,0x6,0x3};
 
 	//Expected output
 	std::vector<std::vector<std::uint64_t>> multi_target_wave_added =
 	{
-		{0xA,0x3}
+		{},
+		{0x69,0x1e0,0x360},
+		{0x6c}
 	};
 
 	for(uint i=0; i<multi_host_wavefunction.size(); i++)
@@ -276,15 +298,15 @@ TEST_CASE("removeDuplicates_kernel test", "[self-test]")
 		std::uint64_t reducedMaxOffset;
 		removeDuplicates(device_wavefunction,maxOffset,wave_added,reducedMaxOffset);
 
-		std::vector<std::uint64_t> wave_added_cpu(maxOffset);
-		cudaMemcpy(data(wave_added_cpu),wave_added.get(),maxOffset*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
+		std::vector<std::uint64_t> wave_added_cpu(reducedMaxOffset);
+		cudaMemcpy(data(wave_added_cpu),wave_added.get(),reducedMaxOffset*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
 
 		/*
-		std::cout<<"waveOut_cpu:";
-		for(uint w=0; w<waveOut_cpu.size(); w++)
-			std::cout<<"  "<<std::hex<<waveOut_cpu[w];
+		std::cout<<"reducedMaxOffset:"<<std::dec<<reducedMaxOffset<<std::endl;
+		std::cout<<"wave_added_cpu:";
+		for(uint w=0; w<wave_added_cpu.size(); w++)
+			std::cout<<"  "<<std::hex<<wave_added_cpu[w];
 		std::cout<<std::endl;
-		std::cout<<"waveOut.second:"<<waveOut.second<<std::endl;
 		*/
 
 		REQUIRE(wave_added_cpu.size() == multi_target_wave_added[i].size());
@@ -373,28 +395,9 @@ TEST_CASE("Test evolve operator", "[simple]")
 		std::uint64_t activation,
 		std::uint64_t deactivation
 	) {
-		std::cout<<"activation: "<<std::hex<<activation<<std::endl;
-		std::cout<<"deactivation: "<<std::hex<<deactivation<<std::endl;
-
-
-		std::cout<<"wfn_in      ("<<std::dec<<wfn_in.size()<<"):";
-		for(uint64_t dat : wfn_in)
-			std::cout <<" "<< std::hex << dat;
-		std::cout<<std::endl;
-
-		std::cout<<"wfn_out     ("<<std::dec<<wfn_out.size()<<"):";
-		for(uint64_t dat : wfn_out)
-			std::cout <<" "<< std::hex << dat;
-		std::cout<<std::endl;
-
 		auto wfn_out_dut = evolve_operator_host(wfn_in, activation, deactivation);
 		auto wfn_out_set = std::unordered_set(begin(wfn_out), end(wfn_out));
 		auto wfn_out_dut_set = std::unordered_set(begin(wfn_out_dut), end(wfn_out_dut));
-
-		std::cout<<"wfn_out_dut ("<<std::dec<<wfn_out_dut.size()<<"):";
-		for(uint64_t dat : wfn_out_dut)
-			std::cout <<" "<< std::hex << dat;
-		std::cout<<std::endl;
 
 		REQUIRE(wfn_out_dut.size() == wfn_out_dut_set.size());
 		REQUIRE(wfn_out_set == wfn_out_dut_set);
