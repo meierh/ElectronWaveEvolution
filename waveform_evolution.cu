@@ -256,7 +256,7 @@ __global__ void duplicateDetection_kernel
 			{
 				uint duplicateCount = duplicate[wave_added_index];
 				if(duplicateCount==0)
-					atomicAdd((duplicate+wave_added_index), 1);
+					*(duplicate+wave_added_index) = 1;
 			}
 		}
 	}
@@ -265,16 +265,17 @@ __global__ void duplicateDetection_kernel
 void detectDuplicates
 (
 	const cuda::std::span<std::uint64_t const> & device_wavefunction,
-	std::uint64_t maxOffset,
+	std::uint64_t wave_added_size,
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
 	pmpp::cuda_ptr<uint[]>& duplicate
 )
 {
+	throw std::logic_error("Depreceated");
 	cudaError_t allocError;
-	duplicate = pmpp::make_managed_cuda_array<uint>(maxOffset,cudaMemAttachGlobal,&allocError);
-	std::vector<uint> zeros(maxOffset);
+	duplicate = pmpp::make_managed_cuda_array<uint>(wave_added_size,cudaMemAttachGlobal,&allocError);
+	std::vector<uint> zeros(wave_added_size);
 	std::fill(zeros.begin(),zeros.end(),0);
-	cudaMemcpy(duplicate.get(),zeros.data(),maxOffset*sizeof(uint),cudaMemcpyHostToDevice);
+	cudaMemcpy(duplicate.get(),zeros.data(),wave_added_size*sizeof(uint),cudaMemcpyHostToDevice);
 
 	uint num_threads = 64;
 	dim3 blockSz = { num_threads };
@@ -284,10 +285,151 @@ void detectDuplicates
 		device_wavefunction.data(),
 		device_wavefunction.size(),
 		wave_added.get(),
-		maxOffset,
+		wave_added_size,
 		duplicate.get()
 	);
 	cudaDeviceSynchronize();
+}
+
+__global__ void setAddedWaveByteTable_kernel
+(
+	const std::uint64_t* wave_data,
+	std::uint64_t wave_data_len,
+	int* byteTable
+)
+{
+	std::uint64_t wave_index = blockDim.x*blockIdx.x + threadIdx.x;
+	if(wave_index < wave_data_len)
+	{
+		std::uint64_t one_wave = wave_data[wave_index];
+		std::uint8_t byteWise_one_wave[sizeof(std::uint64_t)];
+		memcpy(byteWise_one_wave,&one_wave,sizeof(std::uint64_t));
+		for(std::uint16_t byteInd=0; byteInd<sizeof(std::uint64_t); byteInd++)
+		{
+			std::uint16_t byteTable_offset = byteInd*256;
+			std::uint8_t byte_one_wave = byteWise_one_wave[byteInd];
+			int* byteTable_ptr = byteTable+byteTable_offset+byte_one_wave;
+			*byteTable_ptr = 1;
+		}
+	}
+}
+
+__global__ void duplicateDetectionOnByteTable_kernel
+(
+	const std::uint64_t* wave_added,
+	std::uint64_t wave_added_len,
+	const int* byteTable,
+	uint* duplicate
+)
+{
+	std::uint64_t wave_added_index = blockDim.x*blockIdx.x + threadIdx.x;
+	if(wave_added_index < wave_added_len)
+	{
+		std::uint64_t one_wave_added = wave_added[wave_added_index];
+		bool isDuplicate = true;
+
+		std::uint8_t byteWise_one_wave_added[sizeof(std::uint64_t)];
+		memcpy(byteWise_one_wave_added,&one_wave_added,sizeof(std::uint64_t));
+		for(std::uint8_t byteInd=0; byteInd<sizeof(std::uint64_t); byteInd++)
+		{
+			std::uint16_t byteTable_offset = byteInd*256;
+			std::uint8_t byte_one_wave_added = byteWise_one_wave_added[byteInd];
+			const int* byteTable_ptr = byteTable+byteTable_offset+byte_one_wave_added;
+			if((*byteTable_ptr)==0)
+				isDuplicate = false;
+		}
+		if(isDuplicate)
+			duplicate[wave_added_index] = 1;
+		else
+			duplicate[wave_added_index] = 0;
+	}
+}
+
+void detectDuplicatesWithTable
+(
+	const cuda::std::span<std::uint64_t const> & device_wavefunction,
+	std::uint64_t wave_added_size,
+	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
+	pmpp::cuda_ptr<uint[]>& duplicate
+)
+{
+	cudaError_t allocError;
+
+	std::vector<int> wave_ByteTable_cpu(256*sizeof(std::uint64_t));
+	std::fill(wave_ByteTable_cpu.begin(),wave_ByteTable_cpu.end(),0);
+	pmpp::cuda_ptr<int[]> wave_ByteTable = pmpp::make_managed_cuda_array<int>(wave_ByteTable_cpu.size(),cudaMemAttachGlobal,&allocError);
+	cudaMemcpy
+	(
+		wave_ByteTable.get(),
+		wave_ByteTable_cpu.data(),
+		wave_ByteTable_cpu.size()*sizeof(int),
+		cudaMemcpyHostToDevice
+	);
+
+	uint num_threads = 64;
+	dim3 blockSz = { num_threads };
+	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
+	setAddedWaveByteTable_kernel<<<gridSz,blockSz>>>
+	(
+		device_wavefunction.data(),
+		device_wavefunction.size(),
+		wave_ByteTable.get()
+	);
+	cudaDeviceSynchronize();
+
+	/*
+	cudaMemcpy
+	(
+		wave_ByteTable_cpu.data(),
+		wave_ByteTable.get(),
+		wave_ByteTable_cpu.size()*sizeof(int),
+		cudaMemcpyDeviceToHost
+	);
+	std::cout<<std::endl;
+	for(uint i=0; i<8; i++)
+	{
+		for(uint j=0; j<4; j++)
+		{
+			std::cout<<(j*64)<<": ";
+			for(uint k=0; k<64; k++)
+			{
+				std::cout<<" "<<wave_ByteTable_cpu[i*256+j*64+k];
+			}
+			std::cout<<std::endl;
+		}
+		std::cout<<std::endl;
+	}
+	std::cout<<std::endl;
+	*/
+
+	duplicate = pmpp::make_managed_cuda_array<uint>(wave_added_size,cudaMemAttachGlobal,&allocError);
+	num_threads = 32;
+	blockSz = { num_threads };
+	gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
+	duplicateDetectionOnByteTable_kernel<<<gridSz,blockSz>>>
+	(
+		wave_added.get(),
+		wave_added_size,
+		wave_ByteTable.get(),
+		duplicate.get()
+	);
+	cudaDeviceSynchronize();
+
+	/*
+	std::vector<std::uint64_t> wave_added_cpu(wave_added_size);
+	cudaMemcpy(wave_added_cpu.data(),wave_added.get(),wave_added_size*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
+	std::cout<<std::endl;
+	for(uint x : wave_added_cpu)
+		std::cout<<" "<<std::hex<<x;
+	std::cout<<std::endl;
+
+	std::vector<uint> duplicate_cpu(wave_added_size);
+	cudaMemcpy(duplicate_cpu.data(),duplicate.get(),wave_added_size*sizeof(uint),cudaMemcpyDeviceToHost);
+	std::cout<<std::endl;
+	for(uint x : duplicate_cpu)
+		std::cout<<" "<<x;
+	std::cout<<std::endl;
+	*/
 }
 
 __global__ void duplicateToOffset_kernel
@@ -416,7 +558,8 @@ void treatDuplicates
 	*/
 	auto t1 = best_clock::now();
 	pmpp::cuda_ptr<uint[]> duplicate;
-	detectDuplicates(device_wavefunction,maxOffset,wave_added,duplicate);
+	detectDuplicatesWithTable(device_wavefunction,maxOffset,wave_added,duplicate);
+	//detectDuplicates(device_wavefunction,maxOffset,wave_added,duplicate);
 	auto t2 = best_clock::now();
 	std::uint64_t milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"    Detect duplicates took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
