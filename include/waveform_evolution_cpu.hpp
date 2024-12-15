@@ -13,3 +13,14 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator_cp
 	cuda::std::span<std::uint64_t const> device_wavefunction,
 	std::uint64_t activation, std::uint64_t deactivation
 );
+
+/// @brief Evolve a wavefunction using a full ansatz
+/// @param device_wavefunction Initial wavefunction (stored in device or managed memory)
+/// @param activation Activation parts of the operators (stored in device or managed memory)
+/// @param deactivation Deactivation parts of the operators (stored in device or managed memory; same size as activation)
+/// @return The final wavefunction (stored in device or managed memory) and the size of the final wavefunction
+cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz_cpu(
+	cuda::std::span<std::uint64_t const> device_wavefunction,
+	cuda::std::span<std::uint64_t const> activations,
+	cuda::std::span<std::uint64_t const> deactivations
+);

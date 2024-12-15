@@ -81,6 +81,35 @@ std::vector<std::uint64_t> evolve_ansatz_host(
 	return result;
 }
 
+std::vector<std::uint64_t> evolve_ansatz_host_cpu(
+	std::span<std::uint64_t const> host_wavefunction,
+	std::span<std::uint64_t const> host_activations,
+	std::span<std::uint64_t const> host_deactivations
+)
+{
+	using std::size;
+	using std::data;
+
+	auto device_wavefunction_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(size(host_wavefunction));
+	auto device_wavefunction = cuda::std::span(device_wavefunction_ptr.get(), size(host_wavefunction));
+	std::copy_n(data(host_wavefunction), size(host_wavefunction), device_wavefunction.data());
+
+	auto device_activations_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(size(host_activations));
+	auto device_activations = cuda::std::span(device_activations_ptr.get(), size(host_activations));
+	std::copy_n(data(host_activations), size(host_activations), device_activations.data());
+
+	auto device_deactivations_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(size(host_deactivations));
+	auto device_deactivations = cuda::std::span(device_deactivations_ptr.get(), size(host_deactivations));
+	std::copy_n(data(host_deactivations), size(host_deactivations), device_deactivations.data());
+
+	auto [result_wavefunction, result_size] = evolve_ansatz_cpu(device_wavefunction, device_activations, device_deactivations);
+
+	std::vector<std::uint64_t> result(result_size);
+	if(result_size)
+		cudaMemcpy(data(result), result_wavefunction.get(), sizeof(std::uint64_t) * result_size, cudaMemcpyDefault);
+	return result;
+}
+
 
 #include <iostream>
 TEST_CASE("check_collision_kernel test", "[self-test]")
@@ -442,6 +471,20 @@ TEST_CASE("Test evolve operator_cpu", "[self-test]")
 		REQUIRE(wfn_out_dut.size() == wfn_out_dut_set.size());
 		REQUIRE(wfn_out_set == wfn_out_dut_set);
 	});
+}
+
+TEST_CASE("Test evolve ansatz_cpu", "[simple]")
+{
+	using std::begin;
+	using std::end;
+
+	test_data_loader loader("example_evolution.bin");
+	auto [wfn_in, wfn_out] = loader.first_and_last_wavefunction();
+	auto wfn_out_dut = evolve_ansatz_host_cpu(wfn_in, loader.activations(), loader.deactivations());
+	auto wfn_out_set = std::unordered_set(begin(wfn_out), end(wfn_out));
+	auto wfn_out_dut_set = std::unordered_set(begin(wfn_out_dut), end(wfn_out_dut));
+	REQUIRE(wfn_out_dut.size() == wfn_out_dut_set.size());
+	REQUIRE(wfn_out_set == wfn_out_dut_set);
 }
 
 TEST_CASE("Self test input data", "[self-test]")
