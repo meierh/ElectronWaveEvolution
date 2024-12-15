@@ -671,9 +671,13 @@ TEST_CASE("artificial data timing", "[simple]")
 		bitNumbers[i] = i;
 
 	std::ofstream inSizeTimes("artificialData_inSizeTimes.csv");
+	cudaDeviceProp device_properties;
+	cudaGetDeviceProperties(&device_properties, 0);
+	std::string gpu_name = device_properties.name;
+	inSizeTimes<<gpu_name<<std::endl;
 	inSizeTimes<<"inSize"<<","<<"timeMs"<<std::endl;
 
-	for(std::uint64_t waveSize = initalWaveSize; waveSize<=endWaveSize; waveSize*=10)
+	for(std::uint64_t waveSize = initalWaveSize; waveSize<=endWaveSize; waveSize*=2)
 	{
 		std::random_device rnd_device;
 		std::mt19937 engine {rnd_device()};
