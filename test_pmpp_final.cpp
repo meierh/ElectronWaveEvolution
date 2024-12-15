@@ -625,24 +625,26 @@ TEST_CASE("example_evolution timing", "[simple]")
 		outSize_time[wfn_out.size()].push_back(seconds_elapsed);
 	});
 
-	std::ofstream inSizeTimes("example_evolution_inSizeTimes");
+	std::ofstream inSizeTimes("example_evolution_inSizeTimes.csv");
+	inSizeTimes<<"inSize"<<","<<"timeMs"<<std::endl;
 	for(auto iterIn=inSize_time.begin(); iterIn!=inSize_time.end(); iterIn++)
 	{
 		std::uint64_t key = iterIn->first;
 		std::vector<std::uint64_t> values = iterIn->second;
 		std::uint64_t avg = std::accumulate(values.begin(),values.end(),0);
 		avg /= values.size();
-		inSizeTimes<<key<<" = "<<avg<<std::endl;
+		inSizeTimes<<key<<","<<avg<<std::endl;
 	}
 
-	std::ofstream outSizeTimes("example_evolution_outSizeTimes");
+	std::ofstream outSizeTimes("example_evolution_outSizeTimes.csv");
+	outSizeTimes<<"outSize"<<","<<"timeMs"<<std::endl;
 	for(auto iterIn=outSize_time.begin(); iterIn!=outSize_time.end(); iterIn++)
 	{
 		std::uint64_t key = iterIn->first;
 		std::vector<std::uint64_t> values = iterIn->second;
 		std::uint64_t avg = std::accumulate(values.begin(),values.end(),0);
 		avg /= values.size();
-		outSizeTimes<<key<<" = "<<avg<<std::endl;
+		outSizeTimes<<key<<","<<avg<<std::endl;
 	}
 }
 
@@ -666,7 +668,8 @@ TEST_CASE("artificial data timing", "[simple]")
 	for(uint i=0; i<63; i++)
 		bitNumbers[i] = i;
 
-	std::ofstream inSizeTimes("artificialData_inSizeTimes");
+	std::ofstream inSizeTimes("artificialData_inSizeTimes.csv");
+	inSizeTimes<<"inSize"<<","<<"timeMs"<<std::endl;
 
 	for(std::uint64_t waveSize = initalWaveSize; waveSize<endWaveSize; waveSize*=2)
 	{
@@ -710,6 +713,6 @@ TEST_CASE("artificial data timing", "[simple]")
 		std::uint64_t avg = std::accumulate(seconds.begin(),seconds.end(),0);
 		avg /= seconds.size();
 
-		inSizeTimes<<waveSize<<" = "<<avg<<std::endl;
+		inSizeTimes<<waveSize<<","<<avg<<std::endl;
 	}
 }
