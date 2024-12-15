@@ -3,7 +3,7 @@ import argparse
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def plot_csv(filename, scale, dpi=300, output_format='pdf', simple=False):
+def plot_csv(filename, scale, dpi=300, output_format='pdf', simple=False, show_title=True):
     # Read the CSV file
     data = pd.read_csv(filename)
 
@@ -20,10 +20,15 @@ def plot_csv(filename, scale, dpi=300, output_format='pdf', simple=False):
     else:
         raise ValueError("Invalid scale value. Use 'log' or 'lin'.")
 
-    # Set labels and title
+    # Set labels
     plt.xlabel(data.columns[0])  # Set the x-axis label from the CSV column name
     plt.ylabel(data.columns[1])  # Set the y-axis label from the CSV column name
-    plt.title(plot_title)  # Set the title using the filename and scale
+
+    # Set title only if show_title is True
+    if show_title:
+        plt.title(plot_title)  # Set the title using the filename and scale
+
+    plt.grid(True)
 
     if simple:
         # Plot data as a connected line without legend or numbering
@@ -74,7 +79,8 @@ if __name__ == "__main__":
     parser.add_argument('--format', type=str, choices=['pdf', 'svg', 'png'], default='pdf',
                         help="Output format for the plot. Default: 'pdf'. Options: 'pdf', 'svg', 'png'.")
     parser.add_argument('--simple', action='store_true', help='Produce a simple plot without numbering and legend, connecting data points.')
+    parser.add_argument('--notitle', action='store_true', help='Disable the title of the plot.')
     args = parser.parse_args()
 
     # Call the function to plot the data from the provided CSV file
-    plot_csv(args.filename, args.scale, dpi=args.dpi, output_format=args.format, simple=args.simple)
+    plot_csv(args.filename, args.scale, dpi=args.dpi, output_format=args.format, simple=args.simple, show_title=not args.notitle)

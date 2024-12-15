@@ -628,7 +628,7 @@ TEST_CASE("example_evolution timing", "[simple]")
 	});
 
 	std::ofstream inSizeTimes("example_evolution_inSizeTimes.csv");
-	inSizeTimes<<"inSize"<<","<<"timeMs"<<std::endl;
+	inSizeTimes<<"number of input elements"<<","<<"time in ns"<<std::endl;
 	for(auto iterIn=inSize_time.begin(); iterIn!=inSize_time.end(); iterIn++)
 	{
 		std::uint64_t key = iterIn->first;
@@ -639,7 +639,7 @@ TEST_CASE("example_evolution timing", "[simple]")
 	}
 
 	std::ofstream outSizeTimes("example_evolution_outSizeTimes.csv");
-	outSizeTimes<<"outSize"<<","<<"timeMs"<<std::endl;
+	outSizeTimes<<"number of output elements"<<","<<"time in ns"<<std::endl;
 	for(auto iterIn=outSize_time.begin(); iterIn!=outSize_time.end(); iterIn++)
 	{
 		std::uint64_t key = iterIn->first;
@@ -675,7 +675,7 @@ TEST_CASE("artificial data timing", "[simple]")
 	cudaGetDeviceProperties(&device_properties, 0);
 	std::string gpu_name = device_properties.name;
 	inSizeTimes<<gpu_name<<std::endl;
-	inSizeTimes<<"inSize"<<","<<"timeMs"<<std::endl;
+	inSizeTimes<<"number of input elements"<<","<<"time in ms"<<std::endl;
 
 	for(std::uint64_t waveSize = initalWaveSize; waveSize<=endWaveSize; waveSize*=2)
 	{
