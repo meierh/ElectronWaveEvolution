@@ -10,11 +10,11 @@ __global__ void check_collision_kernel
 	std::uint64_t activation,
 	std::uint64_t deactivation,
 	bool* collision,
-	std::uint64_t* non_collision_offset
+	waveSizeCountType* non_collision_offset
 )
 {
 	// TODO: Compute of collision occures and set bit in collision_bits if it happens
-	std::uint64_t wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
+	waveSizeCountType wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
 	if(wave_data_index<wave_data_len)
 	{
 		std::uint64_t wave = wave_data[wave_data_index];
@@ -30,7 +30,7 @@ void collisionEvaluation
 	std::uint64_t activation,
 	std::uint64_t deactivation,
 	pmpp::cuda_ptr<bool[]>& collisions,
-	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset
+	pmpp::cuda_ptr<waveSizeCountType[]>& non_collision_offset
 )
 {
 	cudaError_t allocError;
@@ -38,8 +38,8 @@ void collisionEvaluation
 
 	std::size_t collision_size = device_wavefunction.size();
 	collisions = pmpp::make_managed_cuda_array<bool>(collision_size,cudaMemAttachGlobal,&allocError);
-	non_collision_offset = pmpp::make_managed_cuda_array<std::uint64_t>(collision_size,cudaMemAttachGlobal,&allocError);
-	constexpr uint num_threads = 64;
+	non_collision_offset = pmpp::make_managed_cuda_array<waveSizeCountType>(collision_size,cudaMemAttachGlobal,&allocError);
+	constexpr uint num_threads = 8;
 	gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
 	check_collision_kernel<<<gridSz,dim3(num_threads)>>>
 	(
@@ -56,16 +56,16 @@ void collisionEvaluation
 template<uint num_threads>
 concept ThreadsOK = num_threads%8==0 && num_threads>0 && num_threads<30000;
 
-template<uint num_threads>
+template<uint num_threads,typename seqT,typename sizeT>
 __global__ void inclusive_scan_kernel
 (
-	std::uint64_t* sequence,
-	std::uint64_t len,
-	std::uint64_t* sequence_endBlock
+	seqT* sequence,
+	sizeT len,
+	sizeT* sequenceBlockCarry
 )
 requires ThreadsOK<num_threads>
 {
-	std::uint64_t wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
+	waveSizeCountType wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
 	__shared__ std::uint64_t offsets[num_threads];
 	offsets[threadIdx.x] = 0;
 	if(wave_data_index < len)
@@ -94,65 +94,63 @@ requires ThreadsOK<num_threads>
 		sequence[wave_data_index] = offsets[threadIdx.x];
 
 	if(threadIdx.x==blockDim.x-1)
-		sequence_endBlock[blockIdx.x] = offsets[threadIdx.x];
+		sequenceBlockCarry[blockIdx.x] = offsets[threadIdx.x];
 	if(wave_data_index == len-1)
-		sequence_endBlock[blockIdx.x] = offsets[threadIdx.x];
+		sequenceBlockCarry[blockIdx.x] = offsets[threadIdx.x];
 }
 
-
-template<uint num_threads>
-__global__ void addition_scan_kernel
+template<typename seqT,typename sizeT>
+__global__ void addition_carry_kernel
 (
-	std::uint64_t* sequence,
-	std::uint64_t len,
-	std::uint64_t* sequence_endBlock,
-	std::uint16_t blockOffset
+	seqT* sequence,
+	sizeT len,
+	sizeT* sequenceBlockCarry
 )
-requires ThreadsOK<num_threads>
 {
-	if(blockOffset < blockIdx.x)
+	if(blockIdx.x>0)
 	{
-		std::uint64_t addition = sequence_endBlock[blockIdx.x-1];
-		std::uint64_t wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
-		if(wave_data_index<len)
-			sequence[wave_data_index] += addition;
-		__syncthreads();
-
-		if(blockIdx.x<gridDim.x-1)
-		{
-			if(threadIdx.x==blockDim.x-1)
-				sequence_endBlock[blockIdx.x] = addition;
-		}
+		sizeT carry = sequenceBlockCarry[blockIdx.x-1];
+		waveSizeCountType sequenceIndex = blockDim.x*blockIdx.x + threadIdx.x;
+		if(sequenceIndex<len)
+			sequence[sequenceIndex] += carry;
 	}
 }
 
+template<typename seqT,typename sizeT>
 void inclusive_scan
 (
-	std::uint64_t* sequence,
-	std::uint64_t len
+	seqT* sequence,
+	sizeT len
 )
 {
 	cudaError_t allocError;
-	constexpr uint blockSize = 1024;
-	std::uint64_t gridSize = (len/blockSize) + 1;
 
-	pmpp::cuda_ptr<std::uint64_t[]> sequence_endBlock = pmpp::make_managed_cuda_array<std::uint64_t>(gridSize,cudaMemAttachGlobal,&allocError);
+	constexpr uint blockSize = 8;
+	std::uint64_t gridSize;
+	if(len % blockSize == 0)
+		gridSize = len/blockSize;
+	else
+		gridSize = (len/blockSize)+1;
 
-	inclusive_scan_kernel<blockSize><<<dim3(gridSize),dim3(blockSize)>>>
+	pmpp::cuda_ptr<sizeT[]> sequenceBlockCarry = pmpp::make_managed_cuda_array<sizeT>(gridSize,cudaMemAttachGlobal,&allocError);
+
+	inclusive_scan_kernel<blockSize,seqT,sizeT><<<dim3(gridSize),dim3(blockSize)>>>
 	(
 		sequence,
 		len,
-		sequence_endBlock.get()
+		sequenceBlockCarry.get()
 	);
+	cudaDeviceSynchronize();
 
-	for(std::uint64_t blockOffset=0; blockOffset<gridSize-1; blockOffset++)
+	if(gridSize>1)
 	{
-		addition_scan_kernel<blockSize><<<dim3(gridSize),dim3(blockSize)>>>
+		inclusive_scan<seqT,sizeT>(sequenceBlockCarry.get(),gridSize);
+
+		addition_carry_kernel<seqT,sizeT><<<dim3(gridSize),dim3(blockSize)>>>
 		(
 			sequence,
 			len,
-			sequence_endBlock.get(),
-			blockOffset
+			sequenceBlockCarry.get()
 		);
 		cudaDeviceSynchronize();
 	}
@@ -161,19 +159,18 @@ void inclusive_scan
 void computeOffsets
 (
 	const cuda::std::span<std::uint64_t const>& device_wavefunction,
-	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
-	std::uint64_t& maxOffset
+	pmpp::cuda_ptr<waveSizeCountType[]>& non_collision_offset,
+	waveSizeCountType& maxOffset
 )
 {
-	maxOffset = std::numeric_limits<std::uint64_t>::max();
-	inclusive_scan(non_collision_offset.get(),device_wavefunction.size());
-	std::uint64_t* non_collision_offset_ptr = non_collision_offset.get();
+	inclusive_scan<waveSizeCountType,waveSizeCountType>(non_collision_offset.get(),device_wavefunction.size());
+	waveSizeCountType* non_collision_offset_ptr = non_collision_offset.get();
 	non_collision_offset_ptr += (device_wavefunction.size()-1);
 	cudaMemcpy
 	(
 		&maxOffset,
 		non_collision_offset_ptr,
-		sizeof(std::uint64_t),
+		sizeof(waveSizeCountType),
 		cudaMemcpyDeviceToHost
 	);
 }
@@ -185,17 +182,17 @@ __global__ void evolve_kernel
 	std::uint64_t activation,
 	std::uint64_t deactivation,
 	const bool* collision,
-	const std::uint64_t* non_collision_offset,
+	const waveSizeCountType* non_collision_offset,
  	std::uint64_t* wave_added
 )
 {
 	// TODO: Compute evolved data and store in dst_data according to offsets numbers
-	std::uint64_t wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
+	waveSizeCountType wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
 	if(wave_data_index < wave_data_len)
 	{
 		std::uint64_t wave = wave_data[wave_data_index];
 		bool wave_collision = collision[wave_data_index];
-		std::uint64_t wave_offset = non_collision_offset[wave_data_index];
+		waveSizeCountType wave_offset = non_collision_offset[wave_data_index];
 
 		if(!wave_collision)
 		{
@@ -213,14 +210,14 @@ void evolutionEvaluation
 	std::uint64_t activation,
 	std::uint64_t deactivation,
 	const pmpp::cuda_ptr<bool[]>& collisions,
-	const pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
-	std::uint64_t maxOffset,
+	const pmpp::cuda_ptr<waveSizeCountType[]>& non_collision_offset,
+	waveSizeCountType maxOffset,
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_added
 )
 {
 	cudaError_t allocError;
 	wave_added = pmpp::make_managed_cuda_array<std::uint64_t>(maxOffset,cudaMemAttachGlobal,&allocError);
-	uint threadNum = 64;
+	uint threadNum = 8;
 	dim3 blockSz = { threadNum };
 	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/threadNum)+1 };
 	evolve_kernel<<<gridSz,blockSz>>>
@@ -245,7 +242,7 @@ __global__ void duplicateDetection_kernel
 	uint* duplicate
 )
 {
-	std::uint64_t wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
+	waveSizeCountType wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
 	if(wave_data_index < wave_data_len)
 	{
 		std::uint64_t wave = wave_data[wave_data_index];
@@ -277,7 +274,7 @@ void detectDuplicates
 	std::fill(zeros.begin(),zeros.end(),0);
 	cudaMemcpy(duplicate.get(),zeros.data(),wave_added_size*sizeof(uint),cudaMemcpyHostToDevice);
 
-	uint num_threads = 64;
+	uint num_threads = 8;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
 	duplicateDetection_kernel<<<gridSz,blockSz>>>
@@ -298,7 +295,7 @@ __global__ void setAddedWaveByteTable_kernel
 	int* byteTable
 )
 {
-	std::uint64_t wave_index = blockDim.x*blockIdx.x + threadIdx.x;
+	waveSizeCountType wave_index = blockDim.x*blockIdx.x + threadIdx.x;
 	if(wave_index < wave_data_len)
 	{
 		std::uint64_t one_wave = wave_data[wave_index];
@@ -322,7 +319,7 @@ __global__ void duplicateDetectionOnByteTable_kernel
 	uint* duplicate
 )
 {
-	std::uint64_t wave_added_index = blockDim.x*blockIdx.x + threadIdx.x;
+	waveSizeCountType wave_added_index = blockDim.x*blockIdx.x + threadIdx.x;
 	if(wave_added_index < wave_added_len)
 	{
 		std::uint64_t one_wave_added = wave_added[wave_added_index];
@@ -366,7 +363,7 @@ void detectDuplicatesWithTable
 		cudaMemcpyHostToDevice
 	);
 
-	uint num_threads = 64;
+	uint num_threads = 8;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
 	setAddedWaveByteTable_kernel<<<gridSz,blockSz>>>
@@ -403,7 +400,7 @@ void detectDuplicatesWithTable
 	*/
 
 	duplicate = pmpp::make_managed_cuda_array<uint>(wave_added_size,cudaMemAttachGlobal,&allocError);
-	num_threads = 32;
+	num_threads = 8;
 	blockSz = { num_threads };
 	gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
 	duplicateDetectionOnByteTable_kernel<<<gridSz,blockSz>>>
@@ -437,7 +434,7 @@ __global__ void duplicateToOffset_kernel
 	std::uint64_t wave_added_len,
 	const uint* duplicate,
 	bool* isDuplicate,
-	std::uint64_t* nonduplicateOffset
+	waveSizeCountType* nonduplicateOffset
 )
 {
 	std::uint64_t wave_added_index = blockDim.x*blockIdx.x + threadIdx.x;
@@ -454,14 +451,14 @@ void duplicatesToOffset
 	std::uint64_t maxOffset,
 	pmpp::cuda_ptr<uint[]>& duplicate,
 	pmpp::cuda_ptr<bool[]>& isDuplicate,
-	pmpp::cuda_ptr<std::uint64_t[]>& nonduplicateOffset
+	pmpp::cuda_ptr<waveSizeCountType[]>& nonduplicateOffset
 )
 {
 	cudaError_t allocError;
 	isDuplicate = pmpp::make_managed_cuda_array<bool>(maxOffset,cudaMemAttachGlobal,&allocError);
-	nonduplicateOffset = pmpp::make_managed_cuda_array<std::uint64_t>(maxOffset,cudaMemAttachGlobal,&allocError);
+	nonduplicateOffset = pmpp::make_managed_cuda_array<waveSizeCountType>(maxOffset,cudaMemAttachGlobal,&allocError);
 
-	uint num_threads = 64;
+	uint num_threads = 8;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(maxOffset)/num_threads)+1 };
 	duplicateToOffset_kernel<<<gridSz,blockSz>>>(maxOffset,duplicate.get(),isDuplicate.get(),nonduplicateOffset.get());	cudaDeviceSynchronize();
@@ -469,17 +466,17 @@ void duplicatesToOffset
 
 void duplicateFinalizeOffset
 (
-	pmpp::cuda_ptr<std::uint64_t[]>& nonduplicateOffset,
-	std::uint64_t maxOffset,
-	std::uint64_t& reducedMaxOffset
+	pmpp::cuda_ptr<waveSizeCountType[]>& nonduplicateOffset,
+	waveSizeCountType maxOffset,
+	waveSizeCountType& reducedMaxOffset
 )
 {
-	inclusive_scan(nonduplicateOffset.get(),maxOffset);
+	inclusive_scan<waveSizeCountType,waveSizeCountType>(nonduplicateOffset.get(),maxOffset);
 	cudaMemcpy
 	(
 		&reducedMaxOffset,
 		nonduplicateOffset.get()+maxOffset-1,
-		sizeof(std::uint64_t),
+		sizeof(waveSizeCountType),
 		cudaMemcpyDeviceToHost
 	);
 }
@@ -489,17 +486,17 @@ __global__ void duplicateRemoval_kernel
 	const std::uint64_t* wave_added,
 	std::uint64_t wave_added_len,
 	const bool* isDuplicate,
-	const std::uint64_t* nonduplicateOffset,
+	const waveSizeCountType* nonduplicateOffset,
  	std::uint64_t* reduced_wave_added
 )
 {
 	// TODO: Compute evolved data and store in dst_data according to offsets numbers
-	std::uint64_t wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
+	waveSizeCountType wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
 	if(wave_data_index < wave_added_len)
 	{
 		std::uint64_t wave = wave_added[wave_data_index];
 		bool nonDuplicate = !isDuplicate[wave_data_index];
-		std::uint64_t wave_offset = nonduplicateOffset[wave_data_index];
+		waveSizeCountType wave_offset = nonduplicateOffset[wave_data_index];
 
 		if(nonDuplicate)
 		{
@@ -511,10 +508,10 @@ __global__ void duplicateRemoval_kernel
 void removeDuplicates
 (
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
-	std::uint64_t maxOffset,
+	waveSizeCountType maxOffset,
 	pmpp::cuda_ptr<bool[]>& isDuplicate,
-	pmpp::cuda_ptr<std::uint64_t[]>& nonduplicateOffset,
-	std::uint64_t reducedMaxOffset
+	pmpp::cuda_ptr<waveSizeCountType[]>& nonduplicateOffset,
+	waveSizeCountType reducedMaxOffset
 )
 {
 	if(reducedMaxOffset>0)
@@ -524,7 +521,7 @@ void removeDuplicates
 		reduced_wave_added = pmpp::make_managed_cuda_array<std::uint64_t>(reducedMaxOffset,cudaMemAttachGlobal,&allocError);
 
 
-		uint num_threads = 64;
+		uint num_threads = 8;
 		dim3 blockSz = { num_threads };
 		dim3 gridSz = { (static_cast<uint>(maxOffset)/num_threads)+1 };
 		duplicateRemoval_kernel<<<gridSz,blockSz>>>
@@ -540,15 +537,15 @@ void removeDuplicates
 		wave_added = std::move(reduced_wave_added);
 	}
 	else
-		wave_added.release();
+		wave_added.reset(nullptr);
 }
 
 void treatDuplicates
 (
 	const cuda::std::span<std::uint64_t const> & device_wavefunction,
-	std::uint64_t maxOffset,
+	waveSizeCountType maxOffset,
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
-	std::uint64_t& reducedMaxOffset
+	waveSizeCountType& reducedMaxOffset
 )
 {
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
@@ -569,8 +566,9 @@ void treatDuplicates
 	*/
 	t1 = best_clock::now();
 	pmpp::cuda_ptr<bool[]> isDuplicate;
-	pmpp::cuda_ptr<std::uint64_t[]> nonduplicateOffset;
+	pmpp::cuda_ptr<waveSizeCountType[]> nonduplicateOffset;
 	duplicatesToOffset(maxOffset,duplicate,isDuplicate,nonduplicateOffset);
+	duplicate.reset(nullptr);
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"    Duplicates to offset took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
@@ -609,7 +607,7 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	 */
 	auto t1 = best_clock::now();
 	pmpp::cuda_ptr<bool[]> collisions;
-	pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset;
+	pmpp::cuda_ptr<waveSizeCountType[]> non_collision_offset;
 	collisionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset);
 	auto t2 = best_clock::now();
 	std::uint64_t milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
@@ -619,7 +617,7 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	 * Compute offsets
 	 */
 	t1 = best_clock::now();
-	std::uint64_t maxOffset;
+	waveSizeCountType maxOffset;
 	computeOffsets(device_wavefunction,non_collision_offset,maxOffset);
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
@@ -642,6 +640,8 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 			maxOffset,
 			wave_added
 		);
+		collisions.reset(nullptr);
+		non_collision_offset.reset(nullptr);
 		t2 = best_clock::now();
 		milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 		std::cout<<"  Compute evolution took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
@@ -649,8 +649,7 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 		/*
 		* Treat duplicates
 		*/
-		std::cout<<"maxOffset:"<<maxOffset<<std::endl;
-		std::uint64_t reducedMaxOffset;
+		waveSizeCountType reducedMaxOffset;
 		treatDuplicates(device_wavefunction,maxOffset,wave_added,reducedMaxOffset);
 
 		/*

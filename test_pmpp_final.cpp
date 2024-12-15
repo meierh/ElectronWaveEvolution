@@ -124,14 +124,14 @@ TEST_CASE("check_collision_kernel test", "[self-test]")
 		std::copy_n(data(host_wavefunction), waveSize, device_wavefunction.data());
 
 		pmpp::cuda_ptr<bool[]> collisions;
-		pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset;
+		pmpp::cuda_ptr<waveSizeCountType[]> non_collision_offset;
 
 		collisionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset);
 
 		std::vector<std::uint8_t> collisions_cpu(waveSize);
-		std::vector<std::uint64_t> non_collision_offset_cpu(waveSize);
+		std::vector<waveSizeCountType> non_collision_offset_cpu(waveSize);
 		cudaMemcpy(data(collisions_cpu),collisions.get(),waveSize*sizeof(bool),cudaMemcpyDeviceToHost);
-		cudaMemcpy(data(non_collision_offset_cpu),non_collision_offset.get(),waveSize*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
+		cudaMemcpy(data(non_collision_offset_cpu),non_collision_offset.get(),waveSize*sizeof(waveSizeCountType),cudaMemcpyDeviceToHost);
 
 		/*
 		std::cout<<"collisions_cpu ("<<waveSize<<"):";
@@ -156,7 +156,6 @@ TEST_CASE("check_collision_kernel test", "[self-test]")
 	}
 	std::cout<<"------------------------------------------------------"<<std::endl;;
 }
-
 
 TEST_CASE("computeOffsets test", "[self-test]")
 {
@@ -193,15 +192,15 @@ TEST_CASE("computeOffsets test", "[self-test]")
 		std::copy_n(data(host_wavefunction), waveSize, device_wavefunction.data());
 
 		pmpp::cuda_ptr<bool[]> collisions;
-		pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset;
+		pmpp::cuda_ptr<waveSizeCountType[]> non_collision_offset;
 
 		collisionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset);
 
-		std::uint64_t maxOffset;
+		waveSizeCountType maxOffset;
 		computeOffsets(device_wavefunction,non_collision_offset,maxOffset);
 
-		std::vector<std::uint64_t> non_collision_offset_cpu(waveSize);
-		cudaMemcpy(data(non_collision_offset_cpu),non_collision_offset.get(),waveSize*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
+		std::vector<waveSizeCountType> non_collision_offset_cpu(waveSize);
+		cudaMemcpy(data(non_collision_offset_cpu),non_collision_offset.get(),waveSize*sizeof(waveSizeCountType),cudaMemcpyDeviceToHost);
 
 		/*
 		std::cout<<"non_collision_offset_cpu:";
@@ -263,11 +262,11 @@ TEST_CASE("evolve_kernel test", "[self-test]")
 		std::copy_n(data(host_wavefunction), waveSize, device_wavefunction.data());
 
 		pmpp::cuda_ptr<bool[]> collisions;
-		pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset;
+		pmpp::cuda_ptr<waveSizeCountType[]> non_collision_offset;
 
 		collisionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset);
 
-		std::uint64_t maxOffset;
+		waveSizeCountType maxOffset;
 		computeOffsets(device_wavefunction,non_collision_offset,maxOffset);
 
 		pmpp::cuda_ptr<std::uint64_t[]> wave_added;
@@ -286,9 +285,9 @@ TEST_CASE("evolve_kernel test", "[self-test]")
 		for(uint w=0; w<wave_added_cpu.size(); w++)
 			std::cout<<"  "<<std::hex<<wave_added_cpu[w];
 		std::cout<<std::endl;
-		*/
 
 		std::printf("Time testcase %d: %fms\n", i, milliseconds);
+		*/
 
 		REQUIRE(wave_added_cpu.size() == multi_target_wave_added[i].size());
 		for(uint w=0; w<wave_added_cpu.size(); w++)
@@ -297,7 +296,6 @@ TEST_CASE("evolve_kernel test", "[self-test]")
 		}
 	}
 }
-
 
 TEST_CASE("removeDuplicates_kernel test", "[self-test]")
 {
@@ -333,27 +331,29 @@ TEST_CASE("removeDuplicates_kernel test", "[self-test]")
 		std::copy_n(data(host_wavefunction), waveSize, device_wavefunction.data());
 
 		pmpp::cuda_ptr<bool[]> collisions;
-		pmpp::cuda_ptr<std::uint64_t[]> non_collision_offset;
+		pmpp::cuda_ptr<waveSizeCountType[]> non_collision_offset;
 
 		collisionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset);
 
-		std::uint64_t maxOffset;
+		waveSizeCountType maxOffset;
 		computeOffsets(device_wavefunction,non_collision_offset,maxOffset);
 
 		pmpp::cuda_ptr<std::uint64_t[]> wave_added;
 		evolutionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset,maxOffset,wave_added);
 
-		std::uint64_t reducedMaxOffset;
+		waveSizeCountType reducedMaxOffset;
 		treatDuplicates(device_wavefunction,maxOffset,wave_added,reducedMaxOffset);
 
 		std::vector<std::uint64_t> wave_added_cpu(reducedMaxOffset);
 		cudaMemcpy(data(wave_added_cpu),wave_added.get(),reducedMaxOffset*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
 
+		/*
 		std::cout<<"reducedMaxOffset:"<<std::dec<<reducedMaxOffset<<std::endl;
 		std::cout<<"wave_added_cpu:";
 		for(uint w=0; w<wave_added_cpu.size(); w++)
 			std::cout<<"  "<<std::hex<<wave_added_cpu[w];
 		std::cout<<std::endl;
+		*/
 
 		REQUIRE(wave_added_cpu.size() == multi_target_wave_added[i].size());
 		for(uint w=0; w<wave_added_cpu.size(); w++)
@@ -380,6 +380,7 @@ TEST_CASE("Test evolve operator_cpu", "[self-test]")
 		auto wfn_out_set = std::unordered_set(begin(wfn_out), end(wfn_out));
 		auto wfn_out_dut_set = std::unordered_set(begin(wfn_out_dut), end(wfn_out_dut));
 
+		/*
 		printf("activation:            %ld\n", activation);
     	printf("deactivation:          %ld\n", deactivation);
 
@@ -438,6 +439,7 @@ TEST_CASE("Test evolve operator_cpu", "[self-test]")
 		std::printf("\n");
 		std::printf("\n");
 		// end of generated code
+		*/
 
 		REQUIRE(wfn_out_dut.size() == wfn_out_dut_set.size());
 		REQUIRE(wfn_out_set == wfn_out_dut_set);
@@ -615,9 +617,9 @@ TEST_CASE("artificial data timing", "[simple]")
 	std::map<std::uint64_t,std::vector<std::uint64_t>> outSize_time;
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
 
-	std::uint64_t initalWaveSize = 100;
-	std::uint64_t endWaveSize = 100000000;
-	std::uint64_t perSizeIteration = 1;
+	std::uint64_t initalWaveSize = 1;
+	std::uint64_t endWaveSize = 2e9;
+	std::uint64_t perSizeIteration = 5;
 
 	std::array<std::uint64_t,63> bitNumbers;
 	for(uint i=0; i<63; i++)
@@ -625,8 +627,16 @@ TEST_CASE("artificial data timing", "[simple]")
 
 	std::ofstream inSizeTimes("artificialData_inSizeTimes");
 
-	for(std::uint64_t waveSize = initalWaveSize; waveSize<endWaveSize; waveSize*=2)
+	for(std::uint64_t waveSize = initalWaveSize; waveSize<=endWaveSize; waveSize*=10)
 	{
+		std::random_device rnd_device;
+		std::mt19937 engine {rnd_device()};
+		std::uniform_int_distribution<std::uint64_t> dist {0, std::numeric_limits<std::uint64_t>::max()};
+		auto gen = [&](){return dist(engine);};
+		std::vector<std::uint64_t> wfn(waveSize);
+		std::generate(wfn.begin(),wfn.end(),gen);
+		std::span<std::uint64_t> wfn_gen(wfn.begin(),waveSize);
+
 		std::vector<std::uint64_t> seconds;
 		for(uint iteration=0; iteration<perSizeIteration; iteration++)
 		{
@@ -640,13 +650,6 @@ TEST_CASE("artificial data timing", "[simple]")
 			deactivation = deactivation | one<<bitNumbers[2];
 			deactivation = deactivation | one<<bitNumbers[3];
 
-			std::random_device rnd_device;
-			std::mt19937 engine {rnd_device()};
-			std::uniform_int_distribution<std::uint64_t> dist {0, std::numeric_limits<std::uint64_t>::max()};
-			auto gen = [&](){return dist(engine);};
-			std::vector<std::uint64_t> wfn(waveSize);
-			std::generate(wfn.begin(),wfn.end(),gen);
-			std::span<std::uint64_t> wfn_gen(wfn.begin(),waveSize);
 			std::cout<<"waveSize:"<<std::dec<<waveSize<<" wfn_gen:"<<std::dec<<wfn_gen.size()<<" activation:"<<std::hex<<activation<<" deactivation:"<<std::hex<<deactivation<<std::endl;
 
 			auto device_wavefunction_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(size(wfn_gen));
@@ -659,14 +662,14 @@ TEST_CASE("artificial data timing", "[simple]")
 			result_size = result.second;
 			auto t_end = best_clock::now();
 
-			std::uint64_t nanoseconds_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
 			std::uint64_t milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count();
 			std::cout<<waveSize<<" -> "<<result_size<<"  time:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl<<std::endl;
-			seconds.push_back(nanoseconds_elapsed);
+			seconds.push_back(milliseconds_elapsed);
 		}
 		std::uint64_t avg = std::accumulate(seconds.begin(),seconds.end(),0);
 		avg /= seconds.size();
 
+		std::cout<<"-----------------------avg:"<<std::dec<<avg<<" milliseconds"<<std::endl<<std::endl;
 		inSizeTimes<<waveSize<<" = "<<avg<<std::endl;
 	}
 }

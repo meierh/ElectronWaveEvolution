@@ -4,6 +4,8 @@
 #include <cuda/std/utility>
 #include <cuda/std/span>
 
+typedef std::uint32_t waveSizeCountType;
+
 /// @brief
 /// @param device_wavefunction
 /// @param activation
@@ -17,7 +19,7 @@ void collisionEvaluation
 	std::uint64_t activation,
 	std::uint64_t deactivation,
 	pmpp::cuda_ptr<bool[]>& collisions,
-	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset
+	pmpp::cuda_ptr<waveSizeCountType[]>& non_collision_offset
 );
 
 /// @brief
@@ -28,8 +30,8 @@ void collisionEvaluation
 void computeOffsets
 (
 	const cuda::std::span<std::uint64_t const>& device_wavefunction,
-	pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
-	std::uint64_t& maxOffset
+	pmpp::cuda_ptr<waveSizeCountType[]>& non_collision_offset,
+	waveSizeCountType& maxOffset
 );
 
 /// @brief
@@ -47,15 +49,15 @@ void evolutionEvaluation
 	std::uint64_t activation,
 	std::uint64_t deactivation,
 	const pmpp::cuda_ptr<bool[]>& collisions,
-	const pmpp::cuda_ptr<std::uint64_t[]>& non_collision_offset,
-	std::uint64_t maxOffset,
+	const pmpp::cuda_ptr<waveSizeCountType[]>& non_collision_offset,
+	waveSizeCountType maxOffset,
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_added
 );
 
 void detectDuplicates
 (
 	const cuda::std::span<std::uint64_t const> & device_wavefunction,
-	std::uint64_t maxOffset,
+	waveSizeCountType maxOffset,
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
 	pmpp::cuda_ptr<uint[]>& duplicate
 );
@@ -65,23 +67,23 @@ void duplicatesToOffset
 	std::uint64_t maxOffset,
 	pmpp::cuda_ptr<uint[]>& duplicate,
 	pmpp::cuda_ptr<bool[]>& isDuplicate,
-	pmpp::cuda_ptr<std::uint64_t[]>& nonduplicateOffset
+	pmpp::cuda_ptr<waveSizeCountType[]>& nonduplicateOffset
 );
 
 void duplicateFinalizeOffset
 (
-	pmpp::cuda_ptr<std::uint64_t[]>& nonduplicateOffset,
-	std::uint64_t maxOffset,
-	std::uint64_t& reducedMaxOffset
+	pmpp::cuda_ptr<waveSizeCountType[]>& nonduplicateOffset,
+	waveSizeCountType maxOffset,
+	waveSizeCountType& reducedMaxOffset
 );
 
 void removeDuplicates
 (
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
-	std::uint64_t maxOffset,
+	waveSizeCountType maxOffset,
 	pmpp::cuda_ptr<bool[]>& isDuplicate,
-	pmpp::cuda_ptr<std::uint64_t[]>& nonduplicateOffset,
-	std::uint64_t reducedMaxOffset
+	pmpp::cuda_ptr<waveSizeCountType[]>& nonduplicateOffset,
+	waveSizeCountType reducedMaxOffset
 );
 
 /// @brief
@@ -93,9 +95,9 @@ void removeDuplicates
 void treatDuplicates
 (
 	const cuda::std::span<std::uint64_t const> & device_wavefunction,
-	std::uint64_t maxOffset,
+	waveSizeCountType maxOffset,
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
-	std::uint64_t& reducedMaxOffset
+	waveSizeCountType& reducedMaxOffset
 );
 
 /// @brief Evolve a wavefunction using a single operator
