@@ -129,3 +129,18 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator_cp
     return waveOut;
 }
 
+cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz_cpu(
+	cuda::std::span<std::uint64_t const> device_wavefunction,
+	cuda::std::span<std::uint64_t const> activations,
+	cuda::std::span<std::uint64_t const> deactivations
+)
+{
+	/* TODO */
+	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> result;
+	for(std::uint64_t operatorInd=0; operatorInd<activations.size(); operatorInd++)
+	{
+		result = evolve_operator_cpu(device_wavefunction,activations[operatorInd],deactivations[operatorInd]);
+		device_wavefunction = cuda::std::span<std::uint64_t const>(result.first.get(),result.second);
+	}
+	return result;
+}
