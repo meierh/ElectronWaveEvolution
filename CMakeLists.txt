@@ -30,6 +30,8 @@ add_library(
 	waveform_evolution.cu
 	include/waveform_evolution.hpp
 	include/helpers.hpp
+	waveform_evolution_cpu.cpp
+	include/waveform_evolution_cpu.hpp
 )
 
 target_include_directories(pmpp_final PUBLIC include)
