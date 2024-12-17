@@ -832,9 +832,9 @@ TEST_CASE("example_evolution timing", "[simple]")
 		std::uint64_t deactivation
 	) {
 
-		auto device_wavefunction_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(size(wfn_in));
+		auto device_wavefunction_ptr = pmpp::make_cuda_array<std::uint64_t>(size(wfn_in));
 		auto device_wavefunction = cuda::std::span(device_wavefunction_ptr.get(), size(wfn_in));
-		std::copy_n(data(wfn_in), size(wfn_in), device_wavefunction.data());
+		cudaMemcpy(data(device_wavefunction), wfn_in.data(), sizeof(std::uint64_t)*wfn_in.size(), cudaMemcpyHostToDevice);
 
 		auto t_start = best_clock::now();
 		auto [result_wavefunction, result_size] = evolve_operator(device_wavefunction, activation, deactivation);
@@ -885,7 +885,7 @@ TEST_CASE("artificial data timing", "[simple]")
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
 
 	std::uint64_t initalWaveSize = 1;
-	std::uint64_t endWaveSize = 1.2e9;
+	std::uint64_t endWaveSize = 0.9e9;
 	std::uint64_t perSizeIteration = 10;
 
 	std::array<std::uint64_t,63> bitNumbers;
@@ -925,9 +925,9 @@ TEST_CASE("artificial data timing", "[simple]")
 
 			std::cout<<"waveSize:"<<std::dec<<waveSize<<" wfn_gen:"<<std::dec<<wfn_gen.size()<<" activation:"<<std::hex<<activation<<" deactivation:"<<std::hex<<deactivation<<std::endl;
 
-			auto device_wavefunction_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(size(wfn_gen));
+			auto device_wavefunction_ptr = pmpp::make_cuda_array<std::uint64_t>(size(wfn_gen));
 			auto device_wavefunction = cuda::std::span(device_wavefunction_ptr.get(), size(wfn_gen));
-			std::copy_n(data(wfn_gen), size(wfn_gen), device_wavefunction.data());
+			cudaMemcpy(data(device_wavefunction),wfn_gen.data(),sizeof(std::uint64_t)*wfn_gen.size(), cudaMemcpyHostToDevice);
 
 			auto t_start = best_clock::now();
 			std::uint64_t result_size;

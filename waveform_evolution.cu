@@ -52,8 +52,8 @@ void collisionEvaluation
 	dim3 gridSz;
 
 	std::size_t collision_size = device_wavefunction.size();
-	collisions = pmpp::make_managed_cuda_array<bool>(collision_size,cudaMemAttachGlobal,&allocError);
-	non_collision_offset = pmpp::make_managed_cuda_array<waveSizeCountType>(collision_size,cudaMemAttachGlobal,&allocError);
+	collisions = pmpp::make_cuda_array<bool>(collision_size,&allocError);
+	non_collision_offset = pmpp::make_cuda_array<waveSizeCountType>(collision_size,&allocError);
 	constexpr uint num_threads = 1024;
 	gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
 	check_collision_kernel<<<gridSz,dim3(num_threads)>>>
@@ -147,7 +147,7 @@ void inclusive_scan
 	else
 		gridSize = (len/blockSize)+1;
 
-	pmpp::cuda_ptr<sizeT[]> sequenceBlockCarry = pmpp::make_managed_cuda_array<sizeT>(gridSize,cudaMemAttachGlobal,&allocError);
+	pmpp::cuda_ptr<sizeT[]> sequenceBlockCarry = pmpp::make_cuda_array<sizeT>(gridSize,&allocError);
 
 	inclusive_scan_kernel<blockSize,seqT,sizeT><<<dim3(gridSize),dim3(blockSize)>>>
 	(
@@ -231,7 +231,7 @@ void evolutionEvaluation
 )
 {
 	cudaError_t allocError;
-	wave_added = pmpp::make_managed_cuda_array<std::uint64_t>(maxOffset,cudaMemAttachGlobal,&allocError);
+	wave_added = pmpp::make_cuda_array<std::uint64_t>(maxOffset,&allocError);
 	uint threadNum = 8;
 	dim3 blockSz = { threadNum };
 	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/threadNum)+1 };
@@ -283,7 +283,7 @@ void detectDuplicates
 )
 {
 	cudaError_t allocError;
-	duplicate = pmpp::make_managed_cuda_array<uint>(wave_added_size,cudaMemAttachGlobal,&allocError);
+	duplicate = pmpp::make_cuda_array<uint>(wave_added_size,&allocError);
 	std::vector<uint> zeros(wave_added_size);
 	std::fill(zeros.begin(),zeros.end(),0);
 	cudaMemcpy(duplicate.get(),zeros.data(),wave_added_size*sizeof(uint),cudaMemcpyHostToDevice);
@@ -368,7 +368,7 @@ void detectDuplicatesWithTable
 
 	std::vector<int> wave_ByteTable_cpu(256*256*(sizeof(std::uint64_t)/2));
 	std::fill(wave_ByteTable_cpu.begin(),wave_ByteTable_cpu.end(),0);
-	pmpp::cuda_ptr<int[]> wave_ByteTable = pmpp::make_managed_cuda_array<int>(wave_ByteTable_cpu.size(),cudaMemAttachGlobal,&allocError);
+	pmpp::cuda_ptr<int[]> wave_ByteTable = pmpp::make_cuda_array<int>(wave_ByteTable_cpu.size(),&allocError);
 	cudaMemcpy
 	(
 		wave_ByteTable.get(),
@@ -413,7 +413,7 @@ void detectDuplicatesWithTable
 	std::cout<<std::endl;
 	*/
 
-	duplicate = pmpp::make_managed_cuda_array<uint>(wave_added_size,cudaMemAttachGlobal,&allocError);
+	duplicate = pmpp::make_cuda_array<uint>(wave_added_size,&allocError);
 	num_threads = 32;
 	blockSz = { num_threads };
 	gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
@@ -538,9 +538,9 @@ void findNearestValuesInSortedArray
 		if(sortedSequenceLen%2!=0)
 			halfSize++;
 
-		pmpp::cuda_ptr<std::uint64_t[]> sortedSequenceHalfLen = pmpp::make_managed_cuda_array<std::uint64_t>(halfSize,cudaMemAttachGlobal,&allocError);
+		pmpp::cuda_ptr<std::uint64_t[]> sortedSequenceHalfLen = pmpp::make_cuda_array<std::uint64_t>(halfSize,&allocError);
 
-		uint num_threads = 32;
+		uint num_threads = 1024;
 		dim3 blockSz = { num_threads };
 		dim3 gridSz = { (static_cast<uint>(halfSize)/num_threads)+1 };
 		halfSequence_kernel<<<blockSz,gridSz>>>
@@ -564,7 +564,7 @@ void findNearestValuesInSortedArray
 	std::cout<<std::endl;
 	*/
 
-	uint num_threads = 32;
+	uint num_threads = 1024;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(valuesLen)/num_threads)+1 };
 	iterateValuesPosition_kernel<<<blockSz,gridSz>>>(values,valuesLen,valuesPosition,sortedSequence,sortedSequenceLen);
@@ -621,8 +621,12 @@ void detectDuplicatesWithSorting
 	pmpp::cuda_ptr<uint[]>& duplicate
 )
 {
+	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
+
 	cudaError_t allocError;
-	pmpp::cuda_ptr<std::uint64_t[]> device_wavefunction_sorted = pmpp::make_managed_cuda_array<std::uint64_t>(device_wavefunction.size(),cudaMemAttachGlobal,&allocError);
+
+	auto t1 = best_clock::now();
+	pmpp::cuda_ptr<std::uint64_t[]> device_wavefunction_sorted = pmpp::make_cuda_array<std::uint64_t>(device_wavefunction.size(),&allocError);
     cudaMemcpy
     (
         device_wavefunction_sorted.get(),
@@ -631,11 +635,19 @@ void detectDuplicatesWithSorting
         cudaMemcpyDeviceToDevice
     );
 	sort(device_wavefunction_sorted.get(),device_wavefunction.size());
+	auto t2 = best_clock::now();
+	std::uint64_t milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+	std::cout<<"      Sort wave took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
 
-	pmpp::cuda_ptr<std::int64_t[]> wave_added_position = pmpp::make_managed_cuda_array<std::int64_t>(wave_added_size,cudaMemAttachGlobal,&allocError);
+	t1 = best_clock::now();
+	pmpp::cuda_ptr<std::int64_t[]> wave_added_position = pmpp::make_cuda_array<std::int64_t>(wave_added_size,&allocError);
+	cudaMemset(wave_added_position.get(),-1,wave_added_size*sizeof(std::int64_t));
+
+/*
 	std::vector<std::int64_t> wave_added_position_mOne(wave_added_size);
 	std::fill(wave_added_position_mOne.begin(),wave_added_position_mOne.end(),-1);
 	cudaMemcpy(wave_added_position.get(),wave_added_position_mOne.data(),wave_added_size*sizeof(std::int64_t),cudaMemcpyHostToDevice);
+*/
 
 	findNearestValuesInSortedArray
 	(
@@ -645,6 +657,10 @@ void detectDuplicatesWithSorting
 		wave_added_size,
 		wave_added_position.get()
 	);
+	t2 = best_clock::now();
+	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+	std::cout<<"      Find approx nearest took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
+
 
 	/*
 	{
@@ -672,9 +688,9 @@ void detectDuplicatesWithSorting
 	}
 	*/
 
-	duplicate = pmpp::make_managed_cuda_array<uint>(wave_added_size,cudaMemAttachGlobal,&allocError);
-
-	uint num_threads = 32;
+	t1 = best_clock::now();
+	duplicate = pmpp::make_cuda_array<uint>(wave_added_size,&allocError);
+	uint num_threads = 1024;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
 	duplicateDetectionWithSorting_kernel<<<blockSz,gridSz>>>
@@ -686,6 +702,9 @@ void detectDuplicatesWithSorting
 		device_wavefunction.size(),
 		duplicate.get()
 	);
+	t2 = best_clock::now();
+	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
+	std::cout<<"      Duplicate set took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
 }
 
 __global__ void duplicateToOffset_kernel
@@ -714,10 +733,10 @@ void duplicatesToOffset
 )
 {
 	cudaError_t allocError;
-	isDuplicate = pmpp::make_managed_cuda_array<bool>(maxOffset,cudaMemAttachGlobal,&allocError);
-	nonduplicateOffset = pmpp::make_managed_cuda_array<waveSizeCountType>(maxOffset,cudaMemAttachGlobal,&allocError);
+	isDuplicate = pmpp::make_cuda_array<bool>(maxOffset,&allocError);
+	nonduplicateOffset = pmpp::make_cuda_array<waveSizeCountType>(maxOffset,&allocError);
 
-	uint num_threads = 32;
+	uint num_threads = 1024;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(maxOffset)/num_threads)+1 };
 	duplicateToOffset_kernel<<<gridSz,blockSz>>>(maxOffset,duplicate.get(),isDuplicate.get(),nonduplicateOffset.get());	cudaDeviceSynchronize();
@@ -777,10 +796,10 @@ void removeDuplicates
 	{
 		cudaError_t allocError;
 		pmpp::cuda_ptr<std::uint64_t[]> reduced_wave_added;
-		reduced_wave_added = pmpp::make_managed_cuda_array<std::uint64_t>(reducedMaxOffset,cudaMemAttachGlobal,&allocError);
+		reduced_wave_added = pmpp::make_cuda_array<std::uint64_t>(reducedMaxOffset,&allocError);
 
 
-		uint num_threads = 32;
+		uint num_threads = 1024;
 		dim3 blockSz = { num_threads };
 		dim3 gridSz = { (static_cast<uint>(maxOffset)/num_threads)+1 };
 		duplicateRemoval_kernel<<<gridSz,blockSz>>>
@@ -917,10 +936,10 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 		*/
 		t1 = best_clock::now();
 		waveOut.second = device_wavefunction.size()+reducedMaxOffset;
-		waveOut.first = pmpp::make_managed_cuda_array<std::uint64_t>
+		waveOut.first = pmpp::make_cuda_array<std::uint64_t>
 		(
 			device_wavefunction.size()+reducedMaxOffset,
-			cudaMemAttachGlobal,
+
 			&allocError
 		);
 		cudaMemcpy
@@ -948,10 +967,9 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	{
 		t1 = best_clock::now();
 		waveOut.second = device_wavefunction.size();
-		waveOut.first = pmpp::make_managed_cuda_array<std::uint64_t>
+		waveOut.first = pmpp::make_cuda_array<std::uint64_t>
 		(
 			device_wavefunction.size(),
-			cudaMemAttachGlobal,
 			&allocError
 		);
 		cudaMemcpy
