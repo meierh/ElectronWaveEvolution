@@ -626,7 +626,13 @@ void detectDuplicatesWithSorting
 	cudaError_t allocError;
 
 	auto t1 = best_clock::now();
-	pmpp::cuda_ptr<std::uint64_t[]> device_wavefunction_sorted = pmpp::make_cuda_array<std::uint64_t>(device_wavefunction.size(),&allocError);
+	pmpp::cuda_ptr<std::uint64_t[]> device_wavefunction_sorted;
+
+	//Dirty hack
+	device_wavefunction_sorted.reset(const_cast<std::uint64_t*>(device_wavefunction.data()));
+
+	/*
+	device_wavefunction_sorted = pmpp::make_cuda_array<std::uint64_t>(device_wavefunction.size(),&allocError);
     cudaMemcpy
     (
         device_wavefunction_sorted.get(),
@@ -634,6 +640,8 @@ void detectDuplicatesWithSorting
         device_wavefunction.size()*sizeof(std::uint64_t),
         cudaMemcpyDeviceToDevice
     );
+    */
+
 	sort(device_wavefunction_sorted.get(),device_wavefunction.size());
 	auto t2 = best_clock::now();
 	std::uint64_t milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
@@ -642,12 +650,6 @@ void detectDuplicatesWithSorting
 	t1 = best_clock::now();
 	pmpp::cuda_ptr<std::int64_t[]> wave_added_position = pmpp::make_cuda_array<std::int64_t>(wave_added_size,&allocError);
 	cudaMemset(wave_added_position.get(),-1,wave_added_size*sizeof(std::int64_t));
-
-/*
-	std::vector<std::int64_t> wave_added_position_mOne(wave_added_size);
-	std::fill(wave_added_position_mOne.begin(),wave_added_position_mOne.end(),-1);
-	cudaMemcpy(wave_added_position.get(),wave_added_position_mOne.data(),wave_added_size*sizeof(std::int64_t),cudaMemcpyHostToDevice);
-*/
 
 	findNearestValuesInSortedArray
 	(
@@ -660,33 +662,6 @@ void detectDuplicatesWithSorting
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"      Find approx nearest took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
-
-
-	/*
-	{
-		std::vector<std::uint64_t> device_wavefunction_sorted_cpu(device_wavefunction.size());
-		cudaMemcpy(data(device_wavefunction_sorted_cpu),device_wavefunction_sorted.get(),
-				   device_wavefunction.size()*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
-		std::cout<<"device_wavefunction_sorted_cpu:";
-		for(uint w=0; w<device_wavefunction.size(); w++)
-			std::cout<<"  "<<device_wavefunction_sorted_cpu[w];
-		std::cout<<std::endl;
-
-		std::cout<<"wave_added:";
-		for(uint w=0; w<wave_added_size; w++)
-			std::cout<<"  "<<wave_added[w];
-		std::cout<<std::endl;
-
-
-		std::vector<std::int64_t> wave_added_position_cpu(wave_added_size);
-		cudaMemcpy(data(wave_added_position_cpu),wave_added_position.get(),
-				   wave_added_size*sizeof(std::int64_t),cudaMemcpyDeviceToHost);
-		std::cout<<"wave_added_position_cpu:";
-		for(uint w=0; w<wave_added_size; w++)
-			std::cout<<"  "<<wave_added_position_cpu[w];
-		std::cout<<std::endl;
-	}
-	*/
 
 	t1 = best_clock::now();
 	duplicate = pmpp::make_cuda_array<uint>(wave_added_size,&allocError);
@@ -705,6 +680,8 @@ void detectDuplicatesWithSorting
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"      Duplicate set took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
+
+	device_wavefunction_sorted.release();
 }
 
 __global__ void duplicateToOffset_kernel
