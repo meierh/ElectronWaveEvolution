@@ -110,8 +110,233 @@ std::vector<std::uint64_t> evolve_ansatz_host_cpu(
 	return result;
 }
 
-
 #include <iostream>
+TEST_CASE("sort test", "[self-test]")
+{
+	//Input
+	std::vector<std::vector<std::uint64_t>> multi_host_sequence =
+	{
+		{5,4,2,5,6,7,3,6,2,2,7,3,4,8,9,9,32,2325,252,25,626},
+	};
+
+	for(uint i=0; i<multi_host_sequence.size(); i++)
+	{
+		const std::vector<std::uint64_t>& host_sequence = multi_host_sequence[i];
+		uint len = host_sequence.size();
+
+		auto device_sequence = pmpp::make_managed_cuda_array<std::uint64_t>(len);
+		std::copy_n(data(host_sequence), len, device_sequence.get());
+
+		sort(device_sequence.get(),len);
+
+		std::vector<std::uint64_t> host_sequence_sorted(len);
+		cudaMemcpy(data(host_sequence_sorted),device_sequence.get(),len*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
+
+		std::vector<std::uint64_t> host_sequence_sorted_cpu = multi_host_sequence[i];
+		std::sort(host_sequence_sorted_cpu.begin(),host_sequence_sorted_cpu.end());
+
+		/*
+		std::cout<<"host_sequence_sorted ("<<len<<"):";
+		for(uint w=0; w<len; w++)
+			std::cout<<"  "<<host_sequence_sorted[w];
+		std::cout<<std::endl;
+		std::cout<<"host_sequence_sorted_cpu ("<<len<<"):";
+		for(uint w=0; w<len; w++)
+			std::cout<<"  "<<host_sequence_sorted_cpu[w];
+		std::cout<<std::endl;
+		*/
+
+		for(uint w=0; w<len; w++)
+		{
+			REQUIRE(host_sequence_sorted[w] == host_sequence_sorted_cpu[w]);
+		}
+	}
+}
+
+#include <random>
+TEST_CASE("findNearestValuesInSortedArray test", "[self-test]")
+{
+	//Input
+	std::vector<std::vector<std::uint64_t>> multi_host_sequence =
+	{
+		{5,4,32,59,6,7,43,69,882,92,74}
+	};
+
+	std::vector<std::vector<std::uint64_t>> multi_host_values =
+	{
+		{9,99,44,11,55,88,882}
+	};
+
+	uint nRandInterations = 100;
+	uint sequenceLen = 1347;
+	for(uint i=0; i<nRandInterations; i++)
+	{
+		std::random_device rnd_device;
+		std::mt19937 engine{rnd_device()};
+		std::uniform_int_distribution<std::uint64_t> dist{0,std::numeric_limits<std::uint64_t>::max()};
+		auto gen = [&](){return dist(engine);};
+
+		std::vector<std::uint64_t> seq(sequenceLen);
+		std::generate(seq.begin(),seq.end(),gen);
+		multi_host_sequence.push_back(seq);
+
+		std::vector<std::uint64_t> values(sequenceLen/2);
+		std::generate(values.begin(),values.end(),gen);
+		multi_host_values.push_back(values);
+	}
+
+	for(uint i=0; i<multi_host_sequence.size(); i++)
+	{
+		std::vector<std::uint64_t> host_sequence = multi_host_sequence[i];
+		std::sort(host_sequence.begin(),host_sequence.end());
+		uint sequence_len = host_sequence.size();
+		auto device_sequence = pmpp::make_managed_cuda_array<std::uint64_t>(sequence_len);
+		std::copy_n(data(host_sequence), sequence_len, device_sequence.get());
+
+		std::vector<std::uint64_t> host_values = multi_host_values[i];
+		uint values_len = host_values.size();
+		auto device_values = pmpp::make_managed_cuda_array<std::uint64_t>(values_len);
+		std::copy_n(data(host_values), values_len, device_values.get());
+
+		std::vector<std::int64_t> host_position(host_values.size());
+		std::fill(host_position.begin(),host_position.end(),-1);
+		auto device_position = pmpp::make_managed_cuda_array<std::int64_t>(host_position.size());
+		std::copy_n(data(host_position), host_position.size(), device_position.get());
+
+		findNearestValuesInSortedArray
+		(
+			device_sequence.get(),
+			sequence_len,
+			device_values.get(),
+			values_len,
+			device_position.get()
+		);
+
+		cudaMemcpy(data(host_position),device_position.get(),values_len*sizeof(std::int64_t),cudaMemcpyDeviceToHost);
+
+		/*
+		std::cout<<"host_values          ("<<values_len<<"):";
+		for(uint w=0; w<values_len; w++)
+			std::cout<<"  "<<host_values[w];
+		std::cout<<std::endl;
+		std::cout<<"host_position        ("<<values_len<<"):";
+		for(uint w=0; w<values_len; w++)
+			std::cout<<"  "<<host_position[w];
+		std::cout<<std::endl;
+		*/
+
+		for(uint i=0; i<values_len; i++)
+		{
+			std::uint64_t value = host_values[i];
+			std::uint64_t pos = host_position[i];
+			if(pos!=0)
+				REQUIRE(host_sequence[pos]<=value);
+			if(pos+1 < sequence_len)
+			{
+				REQUIRE(host_sequence[pos+1] > value);
+			}
+		}
+	}
+}
+
+TEST_CASE("detectDuplicatesWithSorting test", "[self-test]")
+{
+	//Input
+	std::vector<std::vector<std::uint64_t>> multi_host_sequence =
+	{
+		{5,4,32,59,6,7,43,69,882,92,74}
+	};
+
+	std::vector<std::vector<std::uint64_t>> multi_host_values =
+	{
+		{9,99,44,11,55,88,882}
+	};
+
+	uint nRandInterations = 100;
+	uint sequenceLen = 1347;
+	for(uint i=0; i<nRandInterations; i++)
+	{
+		std::random_device rnd_device;
+		std::mt19937 engine{rnd_device()};
+		std::uniform_int_distribution<std::uint64_t> dist{0,std::numeric_limits<std::uint64_t>::max()};
+		auto gen = [&](){return dist(engine);};
+
+		std::vector<std::uint64_t> seq(sequenceLen);
+		std::generate(seq.begin(),seq.end(),gen);
+		multi_host_sequence.push_back(seq);
+
+		std::uniform_int_distribution<std::uint64_t> distV{0,sequenceLen-1};
+		auto gen1 = [&](){return seq[distV(engine)];};
+
+		std::vector<std::uint64_t> values(sequenceLen/2);
+		std::generate(values.begin(),values.end(),gen1);
+
+		std::vector<std::uint64_t> addValues(sequenceLen/2);
+		auto gen2 = [&](){return distV(engine);};
+		std::generate(addValues.begin(),addValues.end(),gen2);
+		for(auto x : addValues)
+			values.push_back(x);
+
+		std::sort(values.begin(),values.end());
+
+		multi_host_values.push_back(values);
+	}
+
+	for(uint i=0; i<multi_host_sequence.size(); i++)
+	{
+		std::vector<std::uint64_t> host_sequence = multi_host_sequence[i];
+		uint sequence_len = host_sequence.size();
+		auto device_wavefunction_ptr = pmpp::make_managed_cuda_array<std::uint64_t>(sequence_len);
+		auto device_wavefunction = cuda::std::span(device_wavefunction_ptr.get(),sequence_len);
+		std::copy_n(data(host_sequence), sequence_len, device_wavefunction.data());
+
+		std::vector<std::uint64_t> host_values = multi_host_values[i];
+		uint value_len = host_values.size();
+		auto wave_added = pmpp::make_managed_cuda_array<std::uint64_t>(value_len);
+		std::copy_n(data(host_values), value_len, wave_added.get());
+
+		std::vector<uint> duplicate_cpu(value_len);
+		auto duplicate = pmpp::make_managed_cuda_array<uint>(value_len);
+
+		detectDuplicatesWithSorting
+		(
+			device_wavefunction,
+			value_len,
+			wave_added,
+			duplicate
+		);
+
+		cudaMemcpy(data(duplicate_cpu),duplicate.get(),value_len*sizeof(uint),cudaMemcpyDeviceToHost);
+
+		/*
+		std::cout<<"host_sequence          ("<<sequence_len<<"):";
+		for(uint w=0; w<sequence_len; w++)
+			std::cout<<"  "<<host_sequence[w];
+		std::cout<<std::endl;
+		std::cout<<"host_values        ("<<value_len<<"):";
+		for(uint w=0; w<value_len; w++)
+			std::cout<<"  "<<host_values[w];
+		std::cout<<std::endl;
+		std::cout<<"duplicate_cpu        ("<<value_len<<"):";
+		for(uint w=0; w<value_len; w++)
+			std::cout<<"  "<<duplicate_cpu[w];
+		std::cout<<std::endl;
+		*/
+
+		std::unordered_set<std::uint64_t> sequenceSet(host_sequence.begin(),host_sequence.end());
+
+		for(uint i=0; i<value_len; i++)
+		{
+			std::uint64_t value = host_values[i];
+			uint duplicate = duplicate_cpu[i];
+			if(sequenceSet.find(value)==sequenceSet.end())
+				REQUIRE(duplicate==0);
+			else
+				REQUIRE(duplicate==1);
+		}
+	}
+}
+
 TEST_CASE("check_collision_kernel test", "[self-test]")
 {
 	//Input
@@ -174,7 +399,6 @@ TEST_CASE("check_collision_kernel test", "[self-test]")
 		std::cout<<std::endl;
 		*/
 
-
 		REQUIRE(waveSize == multi_target_collisions[i].size());
 		REQUIRE(waveSize == multi_target_non_collision_offset[i].size());
 		for(uint w=0; w<waveSize; w++)
@@ -183,7 +407,6 @@ TEST_CASE("check_collision_kernel test", "[self-test]")
 			REQUIRE(non_collision_offset_cpu[w] == multi_target_non_collision_offset[i][w]);
 		}
 	}
-	std::cout<<"------------------------------------------------------"<<std::endl;;
 }
 
 TEST_CASE("computeOffsets test", "[self-test]")
@@ -652,7 +875,6 @@ TEST_CASE("example_evolution timing", "[simple]")
 
 #include <algorithm>
 #include <chrono>
-#include <random>
 TEST_CASE("artificial data timing", "[simple]")
 {
 	using std::begin;
@@ -663,8 +885,8 @@ TEST_CASE("artificial data timing", "[simple]")
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
 
 	std::uint64_t initalWaveSize = 1;
-	std::uint64_t endWaveSize = 2e9;
-	std::uint64_t perSizeIteration = 5;
+	std::uint64_t endWaveSize = 1.2e9;
+	std::uint64_t perSizeIteration = 10;
 
 	std::array<std::uint64_t,63> bitNumbers;
 	for(uint i=0; i<63; i++)
@@ -686,6 +908,7 @@ TEST_CASE("artificial data timing", "[simple]")
 		std::vector<std::uint64_t> wfn(waveSize);
 		std::generate(wfn.begin(),wfn.end(),gen);
 		std::span<std::uint64_t> wfn_gen(wfn.begin(),waveSize);
+		wfn.clear();
 
 		std::vector<std::uint64_t> seconds;
 		for(uint iteration=0; iteration<perSizeIteration; iteration++)

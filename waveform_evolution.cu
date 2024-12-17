@@ -2,6 +2,8 @@
 
 #include <iostream>
 #include <chrono>
+#include <thrust/device_ptr.h>
+#include <thrust/sort.h>
 
 __global__ void check_collision_kernel
 (
@@ -18,9 +20,22 @@ __global__ void check_collision_kernel
 	if(wave_data_index<wave_data_len)
 	{
 		std::uint64_t wave = wave_data[wave_data_index];
+
+		/*
+		std::uint32_t waveSplit[2];
+		memcpy(waveSplit,&wave,sizeof(std::uint64_t));
+		std::uint32_t activationSplit[2];
+		memcpy(activationSplit,&activation,sizeof(std::uint64_t));
+		std::uint32_t deactivationSplit[2];
+		memcpy(deactivationSplit,&deactivation,sizeof(std::uint64_t));
+		bool firstSplit = (bool)((waveSplit[0] & activationSplit[0]) | ((~waveSplit[0]) & deactivationSplit[0]));
+		bool secondSplit = (bool)((waveSplit[1] & activationSplit[1]) | ((~waveSplit[1]) & deactivationSplit[1]));
+		bool col = firstSplit || secondSplit;
+		*/
+
 		bool col = (bool)((wave & activation) | ((~wave) & deactivation));
 		collision[wave_data_index] = col;
-		non_collision_offset[wave_data_index] = col ? 0 : 1;
+		non_collision_offset[wave_data_index] = static_cast<waveSizeCountType>(!col);
 	}
 }
 
@@ -39,7 +54,7 @@ void collisionEvaluation
 	std::size_t collision_size = device_wavefunction.size();
 	collisions = pmpp::make_managed_cuda_array<bool>(collision_size,cudaMemAttachGlobal,&allocError);
 	non_collision_offset = pmpp::make_managed_cuda_array<waveSizeCountType>(collision_size,cudaMemAttachGlobal,&allocError);
-	constexpr uint num_threads = 8;
+	constexpr uint num_threads = 1024;
 	gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
 	check_collision_kernel<<<gridSz,dim3(num_threads)>>>
 	(
@@ -262,19 +277,18 @@ __global__ void duplicateDetection_kernel
 void detectDuplicates
 (
 	const cuda::std::span<std::uint64_t const> & device_wavefunction,
-	std::uint64_t wave_added_size,
+	waveSizeCountType wave_added_size,
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
 	pmpp::cuda_ptr<uint[]>& duplicate
 )
 {
-	throw std::logic_error("Depreceated");
 	cudaError_t allocError;
 	duplicate = pmpp::make_managed_cuda_array<uint>(wave_added_size,cudaMemAttachGlobal,&allocError);
 	std::vector<uint> zeros(wave_added_size);
 	std::fill(zeros.begin(),zeros.end(),0);
 	cudaMemcpy(duplicate.get(),zeros.data(),wave_added_size*sizeof(uint),cudaMemcpyHostToDevice);
 
-	uint num_threads = 8;
+	uint num_threads = 32;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
 	duplicateDetection_kernel<<<gridSz,blockSz>>>
@@ -352,7 +366,7 @@ void detectDuplicatesWithTable
 {
 	cudaError_t allocError;
 
-	std::vector<int> wave_ByteTable_cpu(256*sizeof(std::uint64_t));
+	std::vector<int> wave_ByteTable_cpu(256*256*(sizeof(std::uint64_t)/2));
 	std::fill(wave_ByteTable_cpu.begin(),wave_ByteTable_cpu.end(),0);
 	pmpp::cuda_ptr<int[]> wave_ByteTable = pmpp::make_managed_cuda_array<int>(wave_ByteTable_cpu.size(),cudaMemAttachGlobal,&allocError);
 	cudaMemcpy
@@ -363,7 +377,7 @@ void detectDuplicatesWithTable
 		cudaMemcpyHostToDevice
 	);
 
-	uint num_threads = 8;
+	uint num_threads = 32;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
 	setAddedWaveByteTable_kernel<<<gridSz,blockSz>>>
@@ -400,7 +414,7 @@ void detectDuplicatesWithTable
 	*/
 
 	duplicate = pmpp::make_managed_cuda_array<uint>(wave_added_size,cudaMemAttachGlobal,&allocError);
-	num_threads = 8;
+	num_threads = 32;
 	blockSz = { num_threads };
 	gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
 	duplicateDetectionOnByteTable_kernel<<<gridSz,blockSz>>>
@@ -427,6 +441,251 @@ void detectDuplicatesWithTable
 		std::cout<<" "<<x;
 	std::cout<<std::endl;
 	*/
+}
+
+void sort
+(
+	std::uint64_t* sequence,
+	std::uint64_t len
+)
+{
+	auto sequence_thrust = thrust::device_ptr<std::uint64_t>(sequence);
+	thrust::sort(sequence_thrust,sequence_thrust+len);
+}
+
+__global__ void halfSequence_kernel
+(
+	const std::uint64_t* fullSequence,
+	std::uint64_t fullSequenceLen,
+	std::uint64_t* halfSequence,
+	std::uint64_t halfSequenceLen
+)
+{
+	waveSizeCountType halfSequenceIndex = blockDim.x*blockIdx.x + threadIdx.x;
+	waveSizeCountType fullSequenceIndex = halfSequenceIndex*2;
+	if(fullSequenceIndex < fullSequenceLen)
+	{
+		std::uint64_t fullSequenceItem = fullSequence[fullSequenceIndex];
+		std::uint64_t* halfSequenceItem = halfSequence + halfSequenceIndex;
+		*halfSequenceItem = fullSequenceItem;
+	}
+}
+
+__global__ void iterateValuesPosition_kernel
+(
+	const std::uint64_t* values,
+	std::uint64_t valuesLen,
+	std::int64_t* valuesPosition,
+	const std::uint64_t* sequence,
+	std::uint64_t sequenceLen
+)
+{
+	waveSizeCountType valuesIndex = blockDim.x*blockIdx.x + threadIdx.x;
+	if(valuesIndex < valuesLen)
+	{
+		std::uint64_t value = values[valuesIndex];
+		std::int64_t* priorPositionPtr = valuesPosition + valuesIndex;
+		std::int64_t priorPosition = *priorPositionPtr;
+
+		if(priorPosition == -1)
+		{
+			std::uint64_t divider = sequence[1];
+			if(value < divider)
+				*priorPositionPtr = 0;
+			else
+				*priorPositionPtr = 1;
+		}
+		else
+		{
+			std::uint64_t doubledPosition = priorPosition*2;
+			if(doubledPosition==sequenceLen-1)
+				*priorPositionPtr = doubledPosition;
+			else
+			{
+				std::uint64_t divider = sequence[doubledPosition+1];
+				if(value < divider)
+					*priorPositionPtr = doubledPosition;
+				else
+					*priorPositionPtr = doubledPosition+1;
+			}
+		}
+	}
+}
+
+void findNearestValuesInSortedArray
+(
+	std::uint64_t* sortedSequence,
+	std::uint64_t sortedSequenceLen,
+	std::uint64_t* values,
+	std::uint64_t valuesLen,
+	std::int64_t* valuesPosition
+)
+{
+	/*
+	std::vector<std::int64_t> host_sortedSequence(sortedSequenceLen);
+	std::cout<<"sortedSequence ("<<sortedSequenceLen<<"):";
+	cudaMemcpy(data(host_sortedSequence),sortedSequence,sortedSequenceLen*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
+	for(uint w=0; w<sortedSequenceLen; w++)
+		std::cout<<"  "<<host_sortedSequence[w];
+	std::cout<<std::endl;
+	*/
+
+	cudaError_t allocError;
+
+	if(sortedSequenceLen>2)
+	{
+		std::uint64_t halfSize = sortedSequenceLen/2;
+		if(sortedSequenceLen%2!=0)
+			halfSize++;
+
+		pmpp::cuda_ptr<std::uint64_t[]> sortedSequenceHalfLen = pmpp::make_managed_cuda_array<std::uint64_t>(halfSize,cudaMemAttachGlobal,&allocError);
+
+		uint num_threads = 32;
+		dim3 blockSz = { num_threads };
+		dim3 gridSz = { (static_cast<uint>(halfSize)/num_threads)+1 };
+		halfSequence_kernel<<<blockSz,gridSz>>>
+		(
+			sortedSequence,
+			sortedSequenceLen,
+			sortedSequenceHalfLen.get(),
+			halfSize
+		);
+
+		findNearestValuesInSortedArray(sortedSequenceHalfLen.get(),halfSize,values,valuesLen,valuesPosition);
+	}
+
+	/*
+	std::vector<std::int64_t> host_position(valuesLen);
+
+	cudaMemcpy(data(host_position),valuesPosition,valuesLen*sizeof(std::int64_t),cudaMemcpyDeviceToHost);
+	std::cout<<"pre  "<<valuesLen<<" host_position ("<<valuesLen<<"):";
+	for(uint w=0; w<valuesLen; w++)
+		std::cout<<"  "<<host_position[w];
+	std::cout<<std::endl;
+	*/
+
+	uint num_threads = 32;
+	dim3 blockSz = { num_threads };
+	dim3 gridSz = { (static_cast<uint>(valuesLen)/num_threads)+1 };
+	iterateValuesPosition_kernel<<<blockSz,gridSz>>>(values,valuesLen,valuesPosition,sortedSequence,sortedSequenceLen);
+
+	/*
+	cudaMemcpy(data(host_position),valuesPosition,valuesLen*sizeof(std::int64_t),cudaMemcpyDeviceToHost);
+	std::cout<<"post "<<valuesLen<<" host_position ("<<valuesLen<<"):";
+	for(uint w=0; w<valuesLen; w++)
+		std::cout<<"  "<<host_position[w];
+	std::cout<<std::endl<<std::endl;
+	*/
+}
+
+__global__ void duplicateDetectionWithSorting_kernel
+(
+	const std::uint64_t* wave_added,
+	std::uint64_t wave_added_len,
+	std::int64_t* wave_added_position,
+	const std::uint64_t* wave_data,
+	std::uint64_t wave_data_len,
+	uint* duplicate
+)
+{
+	waveSizeCountType wave_added_index = blockDim.x*blockIdx.x + threadIdx.x;
+	if(wave_added_index < wave_added_len)
+	{
+		std::uint64_t one_wave_added = wave_added[wave_added_index];
+		std::uint64_t one_wave_added_position = wave_added_position[wave_added_index];
+
+		std::uint64_t position_value = wave_data[one_wave_added_position];
+		if(position_value == one_wave_added)
+		{
+			duplicate[wave_added_index] = 1;
+			return;
+		}
+		if(one_wave_added_position+1 < wave_data_len)
+		{
+			std::uint64_t next_position_value = wave_data[one_wave_added_position+1];
+			if(next_position_value == one_wave_added)
+			{
+				duplicate[wave_added_index] = 1;
+				return;
+			}
+		}
+		duplicate[wave_added_index] = 0;
+	}
+}
+
+void detectDuplicatesWithSorting
+(
+	const cuda::std::span<std::uint64_t const> & device_wavefunction,
+	std::uint64_t wave_added_size,
+	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
+	pmpp::cuda_ptr<uint[]>& duplicate
+)
+{
+	cudaError_t allocError;
+	pmpp::cuda_ptr<std::uint64_t[]> device_wavefunction_sorted = pmpp::make_managed_cuda_array<std::uint64_t>(device_wavefunction.size(),cudaMemAttachGlobal,&allocError);
+    cudaMemcpy
+    (
+        device_wavefunction_sorted.get(),
+        device_wavefunction.data(),
+        device_wavefunction.size()*sizeof(std::uint64_t),
+        cudaMemcpyDeviceToDevice
+    );
+	sort(device_wavefunction_sorted.get(),device_wavefunction.size());
+
+	pmpp::cuda_ptr<std::int64_t[]> wave_added_position = pmpp::make_managed_cuda_array<std::int64_t>(wave_added_size,cudaMemAttachGlobal,&allocError);
+	std::vector<std::int64_t> wave_added_position_mOne(wave_added_size);
+	std::fill(wave_added_position_mOne.begin(),wave_added_position_mOne.end(),-1);
+	cudaMemcpy(wave_added_position.get(),wave_added_position_mOne.data(),wave_added_size*sizeof(std::int64_t),cudaMemcpyHostToDevice);
+
+	findNearestValuesInSortedArray
+	(
+		device_wavefunction_sorted.get(),
+		device_wavefunction.size(),
+		wave_added.get(),
+		wave_added_size,
+		wave_added_position.get()
+	);
+
+	/*
+	{
+		std::vector<std::uint64_t> device_wavefunction_sorted_cpu(device_wavefunction.size());
+		cudaMemcpy(data(device_wavefunction_sorted_cpu),device_wavefunction_sorted.get(),
+				   device_wavefunction.size()*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
+		std::cout<<"device_wavefunction_sorted_cpu:";
+		for(uint w=0; w<device_wavefunction.size(); w++)
+			std::cout<<"  "<<device_wavefunction_sorted_cpu[w];
+		std::cout<<std::endl;
+
+		std::cout<<"wave_added:";
+		for(uint w=0; w<wave_added_size; w++)
+			std::cout<<"  "<<wave_added[w];
+		std::cout<<std::endl;
+
+
+		std::vector<std::int64_t> wave_added_position_cpu(wave_added_size);
+		cudaMemcpy(data(wave_added_position_cpu),wave_added_position.get(),
+				   wave_added_size*sizeof(std::int64_t),cudaMemcpyDeviceToHost);
+		std::cout<<"wave_added_position_cpu:";
+		for(uint w=0; w<wave_added_size; w++)
+			std::cout<<"  "<<wave_added_position_cpu[w];
+		std::cout<<std::endl;
+	}
+	*/
+
+	duplicate = pmpp::make_managed_cuda_array<uint>(wave_added_size,cudaMemAttachGlobal,&allocError);
+
+	uint num_threads = 32;
+	dim3 blockSz = { num_threads };
+	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
+	duplicateDetectionWithSorting_kernel<<<blockSz,gridSz>>>
+	(
+		wave_added.get(),
+		wave_added_size,
+		wave_added_position.get(),
+		device_wavefunction_sorted.get(),
+		device_wavefunction.size(),
+		duplicate.get()
+	);
 }
 
 __global__ void duplicateToOffset_kernel
@@ -458,7 +717,7 @@ void duplicatesToOffset
 	isDuplicate = pmpp::make_managed_cuda_array<bool>(maxOffset,cudaMemAttachGlobal,&allocError);
 	nonduplicateOffset = pmpp::make_managed_cuda_array<waveSizeCountType>(maxOffset,cudaMemAttachGlobal,&allocError);
 
-	uint num_threads = 8;
+	uint num_threads = 32;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(maxOffset)/num_threads)+1 };
 	duplicateToOffset_kernel<<<gridSz,blockSz>>>(maxOffset,duplicate.get(),isDuplicate.get(),nonduplicateOffset.get());	cudaDeviceSynchronize();
@@ -521,7 +780,7 @@ void removeDuplicates
 		reduced_wave_added = pmpp::make_managed_cuda_array<std::uint64_t>(reducedMaxOffset,cudaMemAttachGlobal,&allocError);
 
 
-		uint num_threads = 8;
+		uint num_threads = 32;
 		dim3 blockSz = { num_threads };
 		dim3 gridSz = { (static_cast<uint>(maxOffset)/num_threads)+1 };
 		duplicateRemoval_kernel<<<gridSz,blockSz>>>
@@ -555,8 +814,9 @@ void treatDuplicates
 	*/
 	auto t1 = best_clock::now();
 	pmpp::cuda_ptr<uint[]> duplicate;
-	detectDuplicatesWithTable(device_wavefunction,maxOffset,wave_added,duplicate);
+	//detectDuplicatesWithTable(device_wavefunction,maxOffset,wave_added,duplicate);
 	//detectDuplicates(device_wavefunction,maxOffset,wave_added,duplicate);
+	detectDuplicatesWithSorting(device_wavefunction,maxOffset,wave_added,duplicate);
 	auto t2 = best_clock::now();
 	std::uint64_t milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"    Detect duplicates took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;

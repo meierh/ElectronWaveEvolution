@@ -62,6 +62,29 @@ void detectDuplicates
 	pmpp::cuda_ptr<uint[]>& duplicate
 );
 
+void sort
+(
+	std::uint64_t* sequence,
+	std::uint64_t len
+);
+
+void findNearestValuesInSortedArray
+(
+	std::uint64_t* sortedSequence,
+	std::uint64_t sortedSequenceLen,
+	std::uint64_t* values,
+	std::uint64_t valuesLen,
+	std::int64_t* valuesPosition
+);
+
+void detectDuplicatesWithSorting
+(
+	const cuda::std::span<std::uint64_t const> & device_wavefunction,
+	std::uint64_t wave_added_size,
+	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
+	pmpp::cuda_ptr<uint[]>& duplicate
+);
+
 void duplicatesToOffset
 (
 	std::uint64_t maxOffset,

@@ -54,12 +54,12 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator_cp
     // almost the same loop again to save the values
     for(uint64_t wave_data_index = 0; wave_data_index<device_wavefunction.size(); wave_data_index++)
     {
-        std::printf("Iteration: %ld, ",wave_data_index);
+        //std::printf("Iteration: %ld, ",wave_data_index);
         std::uint64_t wave = wave_data[wave_data_index];
-        std::printf("Input: %ld, ",wave);
+        //std::printf("Input: %ld, ",wave);
         // check for collision
         bool col = (bool)((wave & activation) | ((~wave) & deactivation));
-        std::printf("col: %d\n",col);
+        //std::printf("col: %d\n",col);
         if(!col)
         {
             // apply activation and deactivation operator
@@ -75,30 +75,34 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator_cp
                 if(new_wave == wave_data[duplicate_index])
                {
                     isDuplicate = true;
-                    std::printf("duplicate\n");
+                    //std::printf("duplicate\n");
                     break;
                 }
             }
             if(isDuplicate == false)
             {
-                std::printf("Added %ld\n",new_wave);
+                //std::printf("Added %ld\n",new_wave);
                 wave_added[wave_added_index] = new_wave;
                 wave_added_index++;
-                std::printf("wave_added: ");
+                //std::printf("wave_added: ");
+				/*
                 for(int i = 0; i<wave_added_size;i++)
                 {
                     std::printf("%ld ",wave_added[i]);
                 }
                 std::printf("\n");
+                */
             }
         }
     }
+    /*
     std::printf("wave_added: ");
     for(int i = 0; i<wave_added_size;i++)
     {
         std::printf("%ld ",wave_added[i]);
     }
     std::printf("\n");
+    */
     // set return value
     cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> waveOut;
     waveOut.second = device_wavefunction.size()+wave_added_size;

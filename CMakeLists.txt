@@ -69,11 +69,15 @@ add_executable(
 	test_data_loader.hpp
 )
 
+find_package(Thrust REQUIRED CONFIG)
+thrust_create_target(Thrust)
+
 target_link_libraries(
 	test_pmpp_final
 	PRIVATE
 	pmpp_final
 	Catch2::Catch2WithMain
+	Thrust
 )
 
 catch_discover_tests(
