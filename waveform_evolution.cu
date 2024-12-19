@@ -34,6 +34,7 @@ __global__ void check_collision_kernel
 		*/
 
 		bool col = (bool)((wave & activation) | ((~wave) & deactivation));
+
 		collision[wave_data_index] = col;
 		non_collision_offset[wave_data_index] = static_cast<waveSizeCountType>(!col);
 	}
@@ -550,7 +551,7 @@ void findNearestValuesInSortedArray
 			sortedSequenceHalfLen.get(),
 			halfSize
 		);
-
+		cudaDeviceSynchronize();
 		findNearestValuesInSortedArray(sortedSequenceHalfLen.get(),halfSize,values,valuesLen,valuesPosition);
 	}
 
@@ -568,6 +569,7 @@ void findNearestValuesInSortedArray
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(valuesLen)/num_threads)+1 };
 	iterateValuesPosition_kernel<<<blockSz,gridSz>>>(values,valuesLen,valuesPosition,sortedSequence,sortedSequenceLen);
+	cudaDeviceSynchronize();
 
 	/*
 	cudaMemcpy(data(host_position),valuesPosition,valuesLen*sizeof(std::int64_t),cudaMemcpyDeviceToHost);
@@ -659,6 +661,7 @@ void detectDuplicatesWithSorting
 		wave_added_size,
 		wave_added_position.get()
 	);
+	cudaDeviceSynchronize();
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"      Find approx nearest took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
@@ -677,6 +680,7 @@ void detectDuplicatesWithSorting
 		device_wavefunction.size(),
 		duplicate.get()
 	);
+	cudaDeviceSynchronize();
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"      Duplicate set took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;

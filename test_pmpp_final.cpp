@@ -884,8 +884,8 @@ TEST_CASE("artificial data timing", "[simple]")
 	std::map<std::uint64_t,std::vector<std::uint64_t>> outSize_time;
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
 
-	std::uint64_t initalWaveSize = 1;
-	std::uint64_t endWaveSize = 1.2e9;
+	std::uint64_t initalWaveSize = 1.2e9;
+	std::uint64_t endWaveSize = 1.3e9;
 	std::uint64_t perSizeIteration = 10;
 
 	std::array<std::uint64_t,63> bitNumbers;
