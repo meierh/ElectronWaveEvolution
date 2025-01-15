@@ -5,6 +5,8 @@
 #include <thrust/device_ptr.h>
 #include <thrust/sort.h>
 
+#define MEASURE_TIME 0
+
 __global__ void check_collision_kernel
 (
 	const std::uint64_t* wave_data,
@@ -623,11 +625,14 @@ void detectDuplicatesWithSorting
 	pmpp::cuda_ptr<uint[]>& duplicate
 )
 {
+	#if MEASURE_TIME
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
+	
+	auto t1 = best_clock::now();
+	#endif //MEASURE_TIME
 
 	cudaError_t allocError;
 
-	auto t1 = best_clock::now();
 	pmpp::cuda_ptr<std::uint64_t[]> device_wavefunction_sorted;
 
 	//Dirty hack
@@ -645,11 +650,15 @@ void detectDuplicatesWithSorting
     */
 
 	sort(device_wavefunction_sorted.get(),device_wavefunction.size());
+
+	#if MEASURE_TIME
 	auto t2 = best_clock::now();
 	std::uint64_t milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"      Sort wave took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
 
 	t1 = best_clock::now();
+	#endif //MEASURE_TIME
+
 	pmpp::cuda_ptr<std::int64_t[]> wave_added_position = pmpp::make_cuda_array<std::int64_t>(wave_added_size,&allocError);
 	cudaMemset(wave_added_position.get(),-1,wave_added_size*sizeof(std::int64_t));
 
@@ -662,11 +671,15 @@ void detectDuplicatesWithSorting
 		wave_added_position.get()
 	);
 	cudaDeviceSynchronize();
+
+	#if MEASURE_TIME
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"      Find approx nearest took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
 
 	t1 = best_clock::now();
+	#endif //MEASURE_TIME
+
 	duplicate = pmpp::make_cuda_array<uint>(wave_added_size,&allocError);
 	uint num_threads = 1024;
 	dim3 blockSz = { num_threads };
@@ -681,9 +694,12 @@ void detectDuplicatesWithSorting
 		duplicate.get()
 	);
 	cudaDeviceSynchronize();
+
+	#if MEASURE_TIME
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"      Duplicate set took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
+	#endif //MEASURE_TIME
 
 	device_wavefunction_sorted.release();
 }
@@ -807,16 +823,21 @@ void treatDuplicates
 	waveSizeCountType& reducedMaxOffset
 )
 {
+	#if MEASURE_TIME
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
 
 	/*
 	* Detect duplicates
 	*/
 	auto t1 = best_clock::now();
+	#endif //MEASURE_TIME
+
 	pmpp::cuda_ptr<uint[]> duplicate;
 	//detectDuplicatesWithTable(device_wavefunction,maxOffset,wave_added,duplicate);
 	//detectDuplicates(device_wavefunction,maxOffset,wave_added,duplicate);
 	detectDuplicatesWithSorting(device_wavefunction,maxOffset,wave_added,duplicate);
+
+	#if MEASURE_TIME
 	auto t2 = best_clock::now();
 	std::uint64_t milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"    Detect duplicates took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
@@ -825,10 +846,14 @@ void treatDuplicates
 	* Duplicates to offset
 	*/
 	t1 = best_clock::now();
+	#endif //MEASURE_TIME
+
 	pmpp::cuda_ptr<bool[]> isDuplicate;
 	pmpp::cuda_ptr<waveSizeCountType[]> nonduplicateOffset;
 	duplicatesToOffset(maxOffset,duplicate,isDuplicate,nonduplicateOffset);
 	duplicate.reset(nullptr);
+
+	#if MEASURE_TIME
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"    Duplicates to offset took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
@@ -837,7 +862,11 @@ void treatDuplicates
 	* Duplicates to offset
 	*/
 	t1 = best_clock::now();
+	#endif //MEASURE_TIME
+
 	duplicateFinalizeOffset(nonduplicateOffset,maxOffset,reducedMaxOffset);
+
+	#if MEASURE_TIME
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"    Finalize duplicate offset took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
@@ -846,10 +875,15 @@ void treatDuplicates
 	* Remove duplicates
 	*/
 	t1 = best_clock::now();
+	#endif //MEASURE_TIME
+
 	removeDuplicates(wave_added,maxOffset,isDuplicate,nonduplicateOffset,reducedMaxOffset);
+
+	#if MEASURE_TIME
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"    Remove duplicates took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
+	#endif //MEASURE_TIME
 }
 
 cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
@@ -857,18 +891,23 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	std::uint64_t activation, std::uint64_t deactivation
 )
 {
+	#if MEASURE_TIME
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
-
-	cudaError_t allocError;
-	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> waveOut;
 
 	/*
 	 * Compute collision data
 	 */
 	auto t1 = best_clock::now();
+	#endif //MEASURE_TIME 
+
+	cudaError_t allocError;
+	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> waveOut;
+
 	pmpp::cuda_ptr<bool[]> collisions;
 	pmpp::cuda_ptr<waveSizeCountType[]> non_collision_offset;
 	collisionEvaluation(device_wavefunction,activation,deactivation,collisions,non_collision_offset);
+
+	#if MEASURE_TIME
 	auto t2 = best_clock::now();
 	std::uint64_t milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"  Compute collision took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
@@ -877,18 +916,25 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	 * Compute offsets
 	 */
 	t1 = best_clock::now();
+	#endif //MEASURE_TIME
+
 	waveSizeCountType maxOffset;
 	computeOffsets(device_wavefunction,non_collision_offset,maxOffset);
+
+	#if MEASURE_TIME
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 	std::cout<<"  Compute offsets took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
+	#endif //MEASURE_TIME
 
 	if(maxOffset>0)
 	{
 		/*
 		* Compute evolution
 		*/
+		#if MEASURE_TIME
 		t1 = best_clock::now();
+		#endif //MEASURE_TIME
 		pmpp::cuda_ptr<std::uint64_t[]> wave_added;
 		evolutionEvaluation
 		(
@@ -902,9 +948,12 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 		);
 		collisions.reset(nullptr);
 		non_collision_offset.reset(nullptr);
+
+		#if MEASURE_TIME
 		t2 = best_clock::now();
 		milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 		std::cout<<"  Compute evolution took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
+		#endif //MEASURE_TIME
 
 		/*
 		* Treat duplicates
@@ -915,7 +964,9 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 		/*
 		* Compose
 		*/
+		#if MEASURE_TIME
 		t1 = best_clock::now();
+		#endif //MEASURE_TIME
 		waveOut.second = device_wavefunction.size()+reducedMaxOffset;
 		waveOut.first = pmpp::make_cuda_array<std::uint64_t>
 		(
@@ -940,13 +991,17 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 				cudaMemcpyDeviceToDevice
 			);
 		}
+		#if MEASURE_TIME
 		t2 = best_clock::now();
 		milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 		std::cout<<"  Compose took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
+		#endif //MEASURE_TIME
 	}
 	else
 	{
+		#if MEASURE_TIME
 		t1 = best_clock::now();
+		#endif //MEASURE_TIME
 		waveOut.second = device_wavefunction.size();
 		waveOut.first = pmpp::make_cuda_array<std::uint64_t>
 		(
@@ -960,9 +1015,12 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 			device_wavefunction.size()*sizeof(std::uint64_t),
 			cudaMemcpyDeviceToDevice
 		);
+		
+		#if MEASURE_TIME
 		t2 = best_clock::now();
 		milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
 		std::cout<<"  Compose took:"<<std::dec<<milliseconds_elapsed<<" milliseconds"<<std::endl;
+		#endif //MEASURE_TIME
 	}
 
 	return waveOut;

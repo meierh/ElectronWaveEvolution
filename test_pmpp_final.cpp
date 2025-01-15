@@ -954,7 +954,7 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 	// TODO: Maybe add multiple iterations and averaging of time
 
 	// values from 0 to 3
-	int8_t selected_testcase = 0;
+	int8_t selected_testcase = 1;
 	std::string testcase[4] = 
 	{
 		"electrons-10_orbitals-20.bin",
