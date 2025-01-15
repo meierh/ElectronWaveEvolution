@@ -42,7 +42,7 @@ __global__ void check_collision_kernel
 	}
 }
 
-void collisionEvaluation
+__host__ void collisionEvaluation
 (
 	cuda::std::span<std::uint64_t const> const & device_wavefunction,
 	std::uint64_t activation,
@@ -135,7 +135,7 @@ __global__ void addition_carry_kernel
 }
 
 template<typename seqT,typename sizeT>
-void inclusive_scan
+__host__ void inclusive_scan
 (
 	seqT* sequence,
 	sizeT len
@@ -174,7 +174,7 @@ void inclusive_scan
 	}
 }
 
-void computeOffsets
+__host__ void computeOffsets
 (
 	const cuda::std::span<std::uint64_t const>& device_wavefunction,
 	pmpp::cuda_ptr<waveSizeCountType[]>& non_collision_offset,
@@ -222,7 +222,7 @@ __global__ void evolve_kernel
 	}
 }
 
-void evolutionEvaluation
+__host__ void evolutionEvaluation
 (
 	const cuda::std::span<std::uint64_t const> & device_wavefunction,
 	std::uint64_t activation,
@@ -277,7 +277,7 @@ __global__ void duplicateDetection_kernel
 	}
 }
 
-void detectDuplicates
+__host__ void detectDuplicates
 (
 	const cuda::std::span<std::uint64_t const> & device_wavefunction,
 	waveSizeCountType wave_added_size,
@@ -359,7 +359,7 @@ __global__ void duplicateDetectionOnByteTable_kernel
 	}
 }
 
-void detectDuplicatesWithTable
+__host__ void detectDuplicatesWithTable
 (
 	const cuda::std::span<std::uint64_t const> & device_wavefunction,
 	std::uint64_t wave_added_size,
@@ -446,7 +446,7 @@ void detectDuplicatesWithTable
 	*/
 }
 
-void sort
+__host__ void sort
 (
 	std::uint64_t* sequence,
 	std::uint64_t len
@@ -515,7 +515,7 @@ __global__ void iterateValuesPosition_kernel
 	}
 }
 
-void findNearestValuesInSortedArray
+__host__ void findNearestValuesInSortedArray
 (
 	std::uint64_t* sortedSequence,
 	std::uint64_t sortedSequenceLen,
@@ -617,7 +617,7 @@ __global__ void duplicateDetectionWithSorting_kernel
 	}
 }
 
-void detectDuplicatesWithSorting
+__host__ void detectDuplicatesWithSorting
 (
 	const cuda::std::span<std::uint64_t const> & device_wavefunction,
 	std::uint64_t wave_added_size,
@@ -721,7 +721,7 @@ __global__ void duplicateToOffset_kernel
 	}
 }
 
-void duplicatesToOffset
+__host__ void duplicatesToOffset
 (
 	std::uint64_t maxOffset,
 	pmpp::cuda_ptr<uint[]>& duplicate,
@@ -739,7 +739,7 @@ void duplicatesToOffset
 	duplicateToOffset_kernel<<<gridSz,blockSz>>>(maxOffset,duplicate.get(),isDuplicate.get(),nonduplicateOffset.get());	cudaDeviceSynchronize();
 }
 
-void duplicateFinalizeOffset
+__host__ void duplicateFinalizeOffset
 (
 	pmpp::cuda_ptr<waveSizeCountType[]>& nonduplicateOffset,
 	waveSizeCountType maxOffset,
@@ -780,7 +780,7 @@ __global__ void duplicateRemoval_kernel
 	}
 }
 
-void removeDuplicates
+__host__ void removeDuplicates
 (
 	pmpp::cuda_ptr<std::uint64_t[]>& wave_added,
 	waveSizeCountType maxOffset,
@@ -815,7 +815,7 @@ void removeDuplicates
 		wave_added.reset(nullptr);
 }
 
-void treatDuplicates
+__host__ void treatDuplicates
 (
 	const cuda::std::span<std::uint64_t const> & device_wavefunction,
 	waveSizeCountType maxOffset,
@@ -886,7 +886,7 @@ void treatDuplicates
 	#endif //MEASURE_TIME
 }
 
-cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
+__host__ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	cuda::std::span<std::uint64_t const> device_wavefunction,
 	std::uint64_t activation, std::uint64_t deactivation
 )
@@ -1026,7 +1026,7 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator(
 	return waveOut;
 }
 
-cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz(
+__host__ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz(
 	cuda::std::span<std::uint64_t const> device_wavefunction,
 	cuda::std::span<std::uint64_t const> activations,
 	cuda::std::span<std::uint64_t const> deactivations
