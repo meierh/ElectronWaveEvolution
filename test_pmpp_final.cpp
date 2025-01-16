@@ -1065,6 +1065,13 @@ TEST_CASE("Compare CPU and GPU", "[simple]")
 		outputFile<<"Iteration"<<","<<operatorInd<<std::endl;
 		outputFile<<"Operators"<<","<<std::hex<<host_activations[operatorInd]<<" "<<std::hex<<host_deactivations[operatorInd]<<std::endl;
 
+		outputFile<<"Input CPU Wave";
+		for (std::size_t i = 0; i < device_wavefunction_cpu.size(); ++i) 
+		{
+        	outputFile << "," << device_wavefunction_cpu[i];
+    	}
+		outputFile<<std::endl;
+
 		auto result_cpu = evolve_operator_cpu(device_wavefunction_cpu,device_activations[operatorInd],device_deactivations[operatorInd]);
 		// auto result_gpu = evolve_operator(device_wavefunction_gpu,device_activations[operatorInd],device_deactivations[operatorInd]);
 		
@@ -1087,6 +1094,8 @@ TEST_CASE("Compare CPU and GPU", "[simple]")
 		// 	outputFile<<","<<result_gpu.first[i];
 		// }
 		// outputFile<<std::endl;
+		
+		outputFile<<std::endl;
 		
 		// // Check sizes
 		// if (result_cpu.second != result_gpu.second) {
