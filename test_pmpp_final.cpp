@@ -885,8 +885,8 @@ TEST_CASE("artificial data timing", "[simple]")
 	std::map<std::uint64_t,std::vector<std::uint64_t>> outSize_time;
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
 
-	std::uint64_t initalWaveSize = 1.2e9;
-	std::uint64_t endWaveSize = 1.3e9;
+	std::uint64_t initalWaveSize = 1.2e5;
+	std::uint64_t endWaveSize = 1.3e5;
 	std::uint64_t perSizeIteration = 10;
 
 	std::array<std::uint64_t,63> bitNumbers;
@@ -949,13 +949,14 @@ TEST_CASE("artificial data timing", "[simple]")
 }
 
 // modified version of "Test evolve ansatz" and "artificial data timing" and evolve_ansatz_host()
+/*
 TEST_CASE("Test electrons orbitals time", "[simple]")
 {
 	// TODO: Maybe add multiple iterations and averaging of time
 
 	// values from 0 to 3
 	int8_t selected_testcase = 1;
-	std::string testcase[4] = 
+	std::string testcase[4] =
 	{
 		"electrons-10_orbitals-20.bin",
 		"electrons-15_orbitals-30.bin",
@@ -981,7 +982,7 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 	auto host_deactivations = loader.deactivations();
 	std::cout <<"activation size: " << host_activations.size() << std::endl;
 	std::cout <<"deactivation size: " << host_deactivations.size() << std::endl;
-	
+
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
 
 	auto t_start_cuda = best_clock::now();
@@ -1003,7 +1004,7 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 	auto t_end_kernel = best_clock::now();
 
 	auto t_end_cuda = best_clock::now();
-	
+
 	std::vector<std::uint64_t> result(result_size);
 	if(result_size)
 		cudaMemcpy(data(result), result_wavefunction.get(), sizeof(std::uint64_t) * result_size, cudaMemcpyDefault);
@@ -1011,7 +1012,7 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 
 	auto t_end_total = best_clock::now();
 
-	std::cout<<"waveSizeInput:"<<host_wavefunction.size()/*<<" activation:"<<std::hex<<host_activations<<" deactivation:"<<std::hex<<host_deactivations*/<<" waveSizeOutput:"<<result.size()<< std::endl;
+	std::cout<<"waveSizeInput:"<<host_wavefunction.size()<<" waveSizeOutput:"<<result.size()<< std::endl;
 
 	std::uint64_t milliseconds_elapsed_total = std::chrono::duration_cast<std::chrono::milliseconds>(t_end_total - t_start_total).count();
 	std::uint64_t milliseconds_elapsed_cuda = std::chrono::duration_cast<std::chrono::milliseconds>(t_end_cuda - t_start_cuda).count();
@@ -1019,14 +1020,16 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 
 	outputFile<<milliseconds_elapsed_total<<","<<milliseconds_elapsed_cuda<<","<<milliseconds_elapsed_kernel<<std::endl;
 }
+*/
+
 
 TEST_CASE("Compare CPU and GPU", "[simple]")
 {
 	// TODO: Maybe add multiple iterations and averaging of time
 
 	// values from 0 to 3
-	int8_t selected_testcase = 0;
-	std::string testcase[4] = 
+	int8_t selected_testcase = 1;
+	std::string testcase[4] =
 	{
 		"electrons-10_orbitals-20.bin",
 		"electrons-15_orbitals-30.bin",
@@ -1036,14 +1039,14 @@ TEST_CASE("Compare CPU and GPU", "[simple]")
 	std::cout<< "Using file: " << testcase[selected_testcase] << std::endl;
 
 	std::ofstream outputFile("compare_CPU_GPU_" + testcase[selected_testcase] + ".csv");
-	
+
 	test_data_loader loader(testcase[selected_testcase].c_str());
 	auto host_wavefunction = loader.first_wavefunction();
 	auto host_activations = loader.activations();
 	auto host_deactivations = loader.deactivations();
 	std::cout <<"activation size: " << host_activations.size() << std::endl;
 	std::cout <<"deactivation size: " << host_deactivations.size() << std::endl;
-	
+
 	auto device_wavefunction_ptr_cpu = pmpp::make_managed_cuda_array<std::uint64_t>(size(host_wavefunction));
 	auto device_wavefunction_cpu = cuda::std::span(device_wavefunction_ptr_cpu.get(), size(host_wavefunction));
 	std::copy_n(data(host_wavefunction), size(host_wavefunction), device_wavefunction_cpu.data());
@@ -1060,53 +1063,62 @@ TEST_CASE("Compare CPU and GPU", "[simple]")
 	auto device_deactivations = cuda::std::span(device_deactivations_ptr.get(), size(host_deactivations));
 	std::copy_n(data(host_deactivations), size(host_deactivations), device_deactivations.data());
 
+	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> result_cpu;
+	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> result_gpu;
 	for(std::uint64_t operatorInd=0; operatorInd<host_activations.size(); operatorInd++)
 	{
 		outputFile<<"Iteration"<<","<<operatorInd<<std::endl;
 		outputFile<<"Operators"<<","<<std::hex<<host_activations[operatorInd]<<" "<<std::hex<<host_deactivations[operatorInd]<<std::endl;
 
 		outputFile<<"Input CPU Wave";
-		for (std::size_t i = 0; i < device_wavefunction_cpu.size(); ++i) 
+		for (std::size_t i = 0; i < device_wavefunction_cpu.size(); ++i)
 		{
         	outputFile << "," << device_wavefunction_cpu[i];
     	}
 		outputFile<<std::endl;
 
-		auto result_cpu = evolve_operator_cpu(device_wavefunction_cpu,device_activations[operatorInd],device_deactivations[operatorInd]);
-		// auto result_gpu = evolve_operator(device_wavefunction_gpu,device_activations[operatorInd],device_deactivations[operatorInd]);
-		
-		device_wavefunction_cpu = cuda::std::span<std::uint64_t>(result_cpu.first.get(), result_cpu.second);
-		// device_wavefunction_gpu = cuda::std::span<std::uint64_t>(result_gpu.first.get(), result_gpu.second);
+		result_cpu = evolve_operator_cpu(device_wavefunction_cpu,device_activations[operatorInd],device_deactivations[operatorInd]);
+		result_gpu = evolve_operator(device_wavefunction_gpu,device_activations[operatorInd],device_deactivations[operatorInd]);
 
+        std::cout<<"Operator: "<<operatorInd<<" Resulting CPU wavefunction size: "<<result_cpu.second<<" Resulting GPU wavefunction size: "<<result_gpu.second<<std::endl;
 
-        // std::cout<<"Operator: "<<operatorInd<<" Resulting CPU wavefunction size: "<<device_wavefunction_cpu.second<<" Resulting GPU wavefunction size: "<<result_gpu.second<<std::endl;
-
-		
 		outputFile<<"Resulting CPU Wave";
+		std::unordered_set<std::uint64_t> result_cpu_set;
 		for(uint32_t i = 0; i<result_cpu.second; i++)
 		{
 			outputFile<<","<<result_cpu.first[i];
+			if(result_cpu_set.find(result_cpu.first[i])!=result_cpu_set.end())
+				FAIL("Duplicate in cpu:");
+			result_cpu_set.insert(result_cpu.first[i]);
 		}
 		outputFile<<std::endl;
-		// outputFile<<"Resulting GPU Wave";
-		// for(uint32_t i = 0; i<result_gpu.second; i++)
-		// {
-		// 	outputFile<<","<<result_gpu.first[i];
-		// }
-		// outputFile<<std::endl;
-		
+
+		outputFile<<"Resulting GPU Wave";
+		std::vector<std::uint64_t> result_gpu_onHost(result_gpu.second);
+		cudaMemcpy(result_gpu_onHost.data(),result_gpu.first.get(), result_gpu.second*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
+		std::unordered_set<std::uint64_t> result_gpu_set;
+		for(uint32_t i = 0; i<result_gpu.second; i++)
+		{
+			outputFile<<","<<result_gpu_onHost[i];
+			if(result_gpu_set.find(result_gpu_onHost[i])!=result_gpu_set.end())
+				FAIL("Duplicate in gpu: "+std::to_string(result_gpu_onHost[i]));
+			result_gpu_set.insert(result_gpu_onHost[i]);
+		}
 		outputFile<<std::endl;
-		
-		// // Check sizes
-		// if (result_cpu.second != result_gpu.second) {
-		// 	FAIL("Size mismatch");
-		// }
+
+		outputFile<<std::endl;
+
+		// Check sizes
+		if (result_cpu.second != result_gpu.second)
+		{
+			FAIL("Size mismatch");
+		}
 
 		// // Check values
-		// for (std::size_t i = 0; i < result_cpu.second; ++i) {
-		// 	if (result_cpu.first[i] != result_gpu.first[i]) {
-		// 		FAIL("Value mismatch");
-		// 	}
-		// }
+		if(result_gpu_set!=result_cpu_set)
+			FAIL("Value mismatch");
+
+		device_wavefunction_cpu = cuda::std::span<std::uint64_t>(result_cpu.first.get(), result_cpu.second);
+		device_wavefunction_gpu = cuda::std::span<std::uint64_t>(result_gpu.first.get(), result_gpu.second);
 	}
 }

@@ -543,7 +543,7 @@ __host__ void findNearestValuesInSortedArray
 
 		pmpp::cuda_ptr<std::uint64_t[]> sortedSequenceHalfLen = pmpp::make_cuda_array<std::uint64_t>(halfSize,&allocError);
 
-		uint num_threads = 1024;
+		uint num_threads = 2;
 		dim3 blockSz = { num_threads };
 		dim3 gridSz = { (static_cast<uint>(halfSize)/num_threads)+1 };
 		halfSequence_kernel<<<blockSz,gridSz>>>
@@ -567,7 +567,7 @@ __host__ void findNearestValuesInSortedArray
 	std::cout<<std::endl;
 	*/
 
-	uint num_threads = 1024;
+	uint num_threads = 2;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(valuesLen)/num_threads)+1 };
 	iterateValuesPosition_kernel<<<blockSz,gridSz>>>(values,valuesLen,valuesPosition,sortedSequence,sortedSequenceLen);
@@ -627,7 +627,7 @@ __host__ void detectDuplicatesWithSorting
 {
 	#if MEASURE_TIME
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
-	
+
 	auto t1 = best_clock::now();
 	#endif //MEASURE_TIME
 
@@ -898,7 +898,7 @@ __host__ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_op
 	 * Compute collision data
 	 */
 	auto t1 = best_clock::now();
-	#endif //MEASURE_TIME 
+	#endif //MEASURE_TIME
 
 	cudaError_t allocError;
 	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> waveOut;
@@ -960,6 +960,8 @@ __host__ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_op
 		*/
 		waveSizeCountType reducedMaxOffset;
 		treatDuplicates(device_wavefunction,maxOffset,wave_added,reducedMaxOffset);
+		//std::cout<<"maxOffset:"<<maxOffset<<std::endl;
+		//std::cout<<"reducedMaxOffset:"<<reducedMaxOffset<<std::endl;
 
 		/*
 		* Compose
@@ -1015,7 +1017,7 @@ __host__ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_op
 			device_wavefunction.size()*sizeof(std::uint64_t),
 			cudaMemcpyDeviceToDevice
 		);
-		
+
 		#if MEASURE_TIME
 		t2 = best_clock::now();
 		milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
