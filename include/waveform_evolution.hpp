@@ -3,6 +3,7 @@
 #include <helpers.hpp>
 #include <cuda/std/utility>
 #include <cuda/std/span>
+#include <unordered_set>
 
 typedef std::uint32_t waveSizeCountType;
 
@@ -70,10 +71,10 @@ void sort
 
 void findNearestValuesInSortedArray
 (
-	std::uint64_t* sortedSequence,
-	std::uint64_t sortedSequenceLen,
-	std::uint64_t* values,
-	std::uint64_t valuesLen,
+	const std::uint64_t* sortedSequence,
+	const std::uint64_t sortedSequenceLen,
+	const std::uint64_t* values,
+	const std::uint64_t valuesLen,
 	std::int64_t* valuesPosition
 );
 

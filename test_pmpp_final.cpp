@@ -841,7 +841,7 @@ TEST_CASE("example_evolution timing", "[simple]")
 		auto [result_wavefunction, result_size] = evolve_operator(device_wavefunction, activation, deactivation);
 		auto t_end = best_clock::now();
 		std::uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
-		std::cout<<"inSize:"<<wfn_in.size()<<" outSize:"<<wfn_out.size()<<" ="<<seconds_elapsed<<std::endl;
+		//std::cout<<"inSize:"<<wfn_in.size()<<" outSize:"<<wfn_out.size()<<" ="<<seconds_elapsed<<std::endl;
 
 		std::vector<std::uint64_t> result(result_size);
 		if(result_size)
@@ -949,7 +949,6 @@ TEST_CASE("artificial data timing", "[simple]")
 }
 
 // modified version of "Test evolve ansatz" and "artificial data timing" and evolve_ansatz_host()
-/*
 TEST_CASE("Test electrons orbitals time", "[simple]")
 {
 	// TODO: Maybe add multiple iterations and averaging of time
@@ -1000,7 +999,7 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 	std::copy_n(data(host_deactivations), size(host_deactivations), device_deactivations.data());
 
 	auto t_start_kernel = best_clock::now();
-	auto [result_wavefunction, result_size] = evolve_ansatz_cpu(device_wavefunction, device_activations, device_deactivations);
+	auto [result_wavefunction, result_size] = evolve_ansatz(device_wavefunction, device_activations, device_deactivations);
 	auto t_end_kernel = best_clock::now();
 
 	auto t_end_cuda = best_clock::now();
@@ -1020,8 +1019,6 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 
 	outputFile<<milliseconds_elapsed_total<<","<<milliseconds_elapsed_cuda<<","<<milliseconds_elapsed_kernel<<std::endl;
 }
-*/
-
 
 TEST_CASE("Compare CPU and GPU", "[simple]")
 {

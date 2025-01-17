@@ -17,26 +17,11 @@ __global__ void check_collision_kernel
 	waveSizeCountType* non_collision_offset
 )
 {
-	// TODO: Compute of collision occures and set bit in collision_bits if it happens
 	waveSizeCountType wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
 	if(wave_data_index<wave_data_len)
 	{
 		std::uint64_t wave = wave_data[wave_data_index];
-
-		/*
-		std::uint32_t waveSplit[2];
-		memcpy(waveSplit,&wave,sizeof(std::uint64_t));
-		std::uint32_t activationSplit[2];
-		memcpy(activationSplit,&activation,sizeof(std::uint64_t));
-		std::uint32_t deactivationSplit[2];
-		memcpy(deactivationSplit,&deactivation,sizeof(std::uint64_t));
-		bool firstSplit = (bool)((waveSplit[0] & activationSplit[0]) | ((~waveSplit[0]) & deactivationSplit[0]));
-		bool secondSplit = (bool)((waveSplit[1] & activationSplit[1]) | ((~waveSplit[1]) & deactivationSplit[1]));
-		bool col = firstSplit || secondSplit;
-		*/
-
 		bool col = (bool)((wave & activation) | ((~wave) & deactivation));
-
 		collision[wave_data_index] = col;
 		non_collision_offset[wave_data_index] = static_cast<waveSizeCountType>(!col);
 	}
@@ -143,7 +128,7 @@ __host__ void inclusive_scan
 {
 	cudaError_t allocError;
 
-	constexpr uint blockSize = 8;
+	constexpr uint blockSize = 1024;
 	std::uint64_t gridSize;
 	if(len % blockSize == 0)
 		gridSize = len/blockSize;
@@ -204,7 +189,6 @@ __global__ void evolve_kernel
  	std::uint64_t* wave_added
 )
 {
-	// TODO: Compute evolved data and store in dst_data according to offsets numbers
 	waveSizeCountType wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
 	if(wave_data_index < wave_data_len)
 	{
@@ -235,7 +219,7 @@ __host__ void evolutionEvaluation
 {
 	cudaError_t allocError;
 	wave_added = pmpp::make_cuda_array<std::uint64_t>(maxOffset,&allocError);
-	uint threadNum = 8;
+	uint threadNum = 1024;
 	dim3 blockSz = { threadNum };
 	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/threadNum)+1 };
 	evolve_kernel<<<gridSz,blockSz>>>
@@ -391,31 +375,6 @@ __host__ void detectDuplicatesWithTable
 	);
 	cudaDeviceSynchronize();
 
-	/*
-	cudaMemcpy
-	(
-		wave_ByteTable_cpu.data(),
-		wave_ByteTable.get(),
-		wave_ByteTable_cpu.size()*sizeof(int),
-		cudaMemcpyDeviceToHost
-	);
-	std::cout<<std::endl;
-	for(uint i=0; i<8; i++)
-	{
-		for(uint j=0; j<4; j++)
-		{
-			std::cout<<(j*64)<<": ";
-			for(uint k=0; k<64; k++)
-			{
-				std::cout<<" "<<wave_ByteTable_cpu[i*256+j*64+k];
-			}
-			std::cout<<std::endl;
-		}
-		std::cout<<std::endl;
-	}
-	std::cout<<std::endl;
-	*/
-
 	duplicate = pmpp::make_cuda_array<uint>(wave_added_size,&allocError);
 	num_threads = 32;
 	blockSz = { num_threads };
@@ -428,22 +387,6 @@ __host__ void detectDuplicatesWithTable
 		duplicate.get()
 	);
 	cudaDeviceSynchronize();
-
-	/*
-	std::vector<std::uint64_t> wave_added_cpu(wave_added_size);
-	cudaMemcpy(wave_added_cpu.data(),wave_added.get(),wave_added_size*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
-	std::cout<<std::endl;
-	for(uint x : wave_added_cpu)
-		std::cout<<" "<<std::hex<<x;
-	std::cout<<std::endl;
-
-	std::vector<uint> duplicate_cpu(wave_added_size);
-	cudaMemcpy(duplicate_cpu.data(),duplicate.get(),wave_added_size*sizeof(uint),cudaMemcpyDeviceToHost);
-	std::cout<<std::endl;
-	for(uint x : duplicate_cpu)
-		std::cout<<" "<<x;
-	std::cout<<std::endl;
-	*/
 }
 
 __host__ void sort
@@ -517,24 +460,14 @@ __global__ void iterateValuesPosition_kernel
 
 __host__ void findNearestValuesInSortedArray
 (
-	std::uint64_t* sortedSequence,
-	std::uint64_t sortedSequenceLen,
-	std::uint64_t* values,
-	std::uint64_t valuesLen,
+	const std::uint64_t* sortedSequence,
+	const std::uint64_t sortedSequenceLen,
+	const std::uint64_t* values,
+	const std::uint64_t valuesLen,
 	std::int64_t* valuesPosition
 )
 {
-	/*
-	std::vector<std::int64_t> host_sortedSequence(sortedSequenceLen);
-	std::cout<<"sortedSequence ("<<sortedSequenceLen<<"):";
-	cudaMemcpy(data(host_sortedSequence),sortedSequence,sortedSequenceLen*sizeof(std::uint64_t),cudaMemcpyDeviceToHost);
-	for(uint w=0; w<sortedSequenceLen; w++)
-		std::cout<<"  "<<host_sortedSequence[w];
-	std::cout<<std::endl;
-	*/
-
 	cudaError_t allocError;
-
 	if(sortedSequenceLen>2)
 	{
 		std::uint64_t halfSize = sortedSequenceLen/2;
@@ -543,10 +476,10 @@ __host__ void findNearestValuesInSortedArray
 
 		pmpp::cuda_ptr<std::uint64_t[]> sortedSequenceHalfLen = pmpp::make_cuda_array<std::uint64_t>(halfSize,&allocError);
 
-		uint num_threads = 2;
+		uint num_threads = 1024;
 		dim3 blockSz = { num_threads };
 		dim3 gridSz = { (static_cast<uint>(halfSize)/num_threads)+1 };
-		halfSequence_kernel<<<blockSz,gridSz>>>
+		halfSequence_kernel<<<gridSz,blockSz>>>
 		(
 			sortedSequence,
 			sortedSequenceLen,
@@ -557,29 +490,18 @@ __host__ void findNearestValuesInSortedArray
 		findNearestValuesInSortedArray(sortedSequenceHalfLen.get(),halfSize,values,valuesLen,valuesPosition);
 	}
 
-	/*
-	std::vector<std::int64_t> host_position(valuesLen);
-
-	cudaMemcpy(data(host_position),valuesPosition,valuesLen*sizeof(std::int64_t),cudaMemcpyDeviceToHost);
-	std::cout<<"pre  "<<valuesLen<<" host_position ("<<valuesLen<<"):";
-	for(uint w=0; w<valuesLen; w++)
-		std::cout<<"  "<<host_position[w];
-	std::cout<<std::endl;
-	*/
-
-	uint num_threads = 2;
+	uint num_threads = 1024;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(valuesLen)/num_threads)+1 };
-	iterateValuesPosition_kernel<<<blockSz,gridSz>>>(values,valuesLen,valuesPosition,sortedSequence,sortedSequenceLen);
+	iterateValuesPosition_kernel<<<gridSz,blockSz>>>
+	(
+		values,
+		valuesLen,
+		valuesPosition,
+		sortedSequence,
+		sortedSequenceLen
+	);
 	cudaDeviceSynchronize();
-
-	/*
-	cudaMemcpy(data(host_position),valuesPosition,valuesLen*sizeof(std::int64_t),cudaMemcpyDeviceToHost);
-	std::cout<<"post "<<valuesLen<<" host_position ("<<valuesLen<<"):";
-	for(uint w=0; w<valuesLen; w++)
-		std::cout<<"  "<<host_position[w];
-	std::cout<<std::endl<<std::endl;
-	*/
 }
 
 __global__ void duplicateDetectionWithSorting_kernel
@@ -638,17 +560,6 @@ __host__ void detectDuplicatesWithSorting
 	//Dirty hack
 	device_wavefunction_sorted.reset(const_cast<std::uint64_t*>(device_wavefunction.data()));
 
-	/*
-	device_wavefunction_sorted = pmpp::make_cuda_array<std::uint64_t>(device_wavefunction.size(),&allocError);
-    cudaMemcpy
-    (
-        device_wavefunction_sorted.get(),
-        device_wavefunction.data(),
-        device_wavefunction.size()*sizeof(std::uint64_t),
-        cudaMemcpyDeviceToDevice
-    );
-    */
-
 	sort(device_wavefunction_sorted.get(),device_wavefunction.size());
 
 	#if MEASURE_TIME
@@ -672,6 +583,7 @@ __host__ void detectDuplicatesWithSorting
 	);
 	cudaDeviceSynchronize();
 
+
 	#if MEASURE_TIME
 	t2 = best_clock::now();
 	milliseconds_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count();
@@ -684,7 +596,7 @@ __host__ void detectDuplicatesWithSorting
 	uint num_threads = 1024;
 	dim3 blockSz = { num_threads };
 	dim3 gridSz = { (static_cast<uint>(device_wavefunction.size())/num_threads)+1 };
-	duplicateDetectionWithSorting_kernel<<<blockSz,gridSz>>>
+	duplicateDetectionWithSorting_kernel<<<gridSz,blockSz>>>
 	(
 		wave_added.get(),
 		wave_added_size,
@@ -765,7 +677,6 @@ __global__ void duplicateRemoval_kernel
  	std::uint64_t* reduced_wave_added
 )
 {
-	// TODO: Compute evolved data and store in dst_data according to offsets numbers
 	waveSizeCountType wave_data_index = blockDim.x*blockIdx.x + threadIdx.x;
 	if(wave_data_index < wave_added_len)
 	{
@@ -960,8 +871,6 @@ __host__ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_op
 		*/
 		waveSizeCountType reducedMaxOffset;
 		treatDuplicates(device_wavefunction,maxOffset,wave_added,reducedMaxOffset);
-		//std::cout<<"maxOffset:"<<maxOffset<<std::endl;
-		//std::cout<<"reducedMaxOffset:"<<reducedMaxOffset<<std::endl;
 
 		/*
 		* Compose
@@ -1034,10 +943,10 @@ __host__ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_an
 	cuda::std::span<std::uint64_t const> deactivations
 )
 {
-	/* TODO */
 	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> result;
 	for(std::uint64_t operatorInd=0; operatorInd<activations.size(); operatorInd++)
 	{
+		std::cout<<"operatorInd:"<<operatorInd<<" waveSize:"<<result.second<<std::endl;
 		result = evolve_operator(device_wavefunction,activations[operatorInd],deactivations[operatorInd]);
 		device_wavefunction = cuda::std::span<std::uint64_t const>(result.first.get(),result.second);
 	}
