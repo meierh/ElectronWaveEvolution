@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <unordered_set>
+#include <iostream>
 
 // TODO: remove printf in this file
 cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_operator_cpu(
@@ -69,6 +70,8 @@ cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> evolve_ansatz_cpu(
 	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> result;
 	for(std::uint64_t operatorInd=0; operatorInd<activations.size(); operatorInd++)
 	{
+        // uncomment for debugging
+		// std::cout<<"operatorInd:"<<operatorInd<<" waveSize:"<<result.second<<std::endl;
 		result = evolve_operator_cpu(device_wavefunction,activations[operatorInd],deactivations[operatorInd]);
 		device_wavefunction = cuda::std::span<std::uint64_t const>(result.first.get(),result.second);
 	}

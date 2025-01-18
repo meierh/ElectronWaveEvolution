@@ -953,8 +953,9 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 {
 	// TODO: Maybe add multiple iterations and averaging of time
 
+	#define USE_CPU 0
 	// values from 0 to 3
-	int8_t selected_testcase = 1;
+	int8_t selected_testcase = 3;
 	std::string testcase[4] =
 	{
 		"electrons-10_orbitals-20.bin",
@@ -966,9 +967,12 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 	std::cout<< "Using file: " << testcase[selected_testcase] << std::endl;
 
 	using best_clock = std::conditional_t<std::chrono::high_resolution_clock::is_steady, std::chrono::high_resolution_clock, std::chrono::steady_clock>;
-
-	std::ofstream outputFile("time_" + testcase[selected_testcase] + ".csv");
-	// total time: whole program with loading data (excluded writing to csv and stdout)
+	#if USE_CPU
+	std::ofstream outputFile("time_cpu_" + testcase[selected_testcase] + ".csv");
+	#else
+	std::ofstream outputFile("time_gpu_" + testcase[selected_testcase] + ".csv");
+	#endif
+	// total time: whole program with loading data (excluded writing to csv and if possible stdout)
 	// cuda time: creation of cuda arrays, data tarnsfer and kernel
 	// kernel time: kernel only
 	outputFile<<"total time in ms"<<","<<"cuda time in ms"<<","<<"kernel time in ms"<<std::endl;
@@ -999,7 +1003,11 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 	std::copy_n(data(host_deactivations), size(host_deactivations), device_deactivations.data());
 
 	auto t_start_kernel = best_clock::now();
+	#if USE_CPU
+	auto [result_wavefunction, result_size] = evolve_ansatz_cpu(device_wavefunction, device_activations, device_deactivations);
+	#else
 	auto [result_wavefunction, result_size] = evolve_ansatz(device_wavefunction, device_activations, device_deactivations);
+	#endif
 	auto t_end_kernel = best_clock::now();
 
 	auto t_end_cuda = best_clock::now();
@@ -1064,7 +1072,7 @@ TEST_CASE("Compare CPU and GPU", "[simple]")
 	cuda::std::pair<pmpp::cuda_ptr<std::uint64_t[]>, std::size_t> result_gpu;
 	for(std::uint64_t operatorInd=0; operatorInd<host_activations.size(); operatorInd++)
 	{
-		outputFile<<"Iteration"<<","<<operatorInd<<std::endl;
+		outputFile<<"Iteration"<<","<<std::dec<<operatorInd<<std::endl;
 		outputFile<<"Operators"<<","<<std::hex<<host_activations[operatorInd]<<" "<<std::hex<<host_deactivations[operatorInd]<<std::endl;
 
 		outputFile<<"Input CPU Wave";
