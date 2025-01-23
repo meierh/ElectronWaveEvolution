@@ -955,7 +955,7 @@ TEST_CASE("Test electrons orbitals time", "[simple]")
 
 	#define USE_CPU 0
 	// values from 0 to 3
-	int8_t selected_testcase = 3;
+	int8_t selected_testcase = 0;
 	std::string testcase[4] =
 	{
 		"electrons-10_orbitals-20.bin",
@@ -1033,7 +1033,7 @@ TEST_CASE("Compare CPU and GPU", "[simple]")
 	// TODO: Maybe add multiple iterations and averaging of time
 
 	// values from 0 to 3
-	int8_t selected_testcase = 1;
+	int8_t selected_testcase = 0;
 	std::string testcase[4] =
 	{
 		"electrons-10_orbitals-20.bin",
