@@ -32,6 +32,7 @@ add_library(
 	include/helpers.hpp
 	waveform_evolution_cpu.cpp
 	include/waveform_evolution_cpu.hpp
+	test_data_loader.hpp
 )
 
 target_include_directories(pmpp_final PUBLIC include)
@@ -44,6 +45,9 @@ target_link_libraries(
 	$<IF:$<STREQUAL:$<UPPER_CASE:${CMAKE_CUDA_RUNTIME_LIBRARY}>,"SHARED">,CUDA::cudart,CUDA::cudart_static>
 	libcudacxx::libcudacxx
 )
+
+add_executable(pmpp_executable main.cpp test_data_loader.cpp)
+target_link_libraries(pmpp_executable PRIVATE pmpp_final)
 
 if(NOT BUILD_TESTING)
 	return()

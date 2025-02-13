@@ -18,4 +18,4 @@
 module purge
 module load cuda/12.5 gcc/13.1.0
 mkdir -p out
-srun build/pmpp_ex1
+srun build/pmpp_executable
